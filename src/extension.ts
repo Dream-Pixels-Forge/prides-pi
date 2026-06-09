@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildTools, buildCommand, createToolGuard, createSessionGuard, PHASES, type Phase, CONFIG, createState } from "./index.js";
+import { buildTools, buildCommand, createToolGuard, createSessionGuard, CONFIG, createState } from "./index.js";
 
 export default function (pi: ExtensionAPI) {
   const state = createState("P");
@@ -11,10 +11,10 @@ export default function (pi: ExtensionAPI) {
     CONFIG[state.state.currentPhase].criticality
   );
 
-  state.onChange((newPhase) => {
-    const cfg = CONFIG[newPhase];
-    guard.update(newPhase, cfg.blockedTools);
-    sessionGuard.update(newPhase, cfg.criticality, state.state.gateResults);
+  state.onChange(() => {
+    const cfg = CONFIG[state.state.currentPhase];
+    guard.update(state.state.currentPhase, cfg.blockedTools);
+    sessionGuard.update(state.state.currentPhase, cfg.criticality, state.state.gateResults);
   });
 
   const ctx = {
