@@ -84,6 +84,7 @@ function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
     execute: async (params: ToolParams) => {
       const force = (params.force as boolean) ?? false;
       const cfg = getPhaseConfig(state.state.currentPhase);
+      const previousPhase = state.state.currentPhase;
 
       if (!force) {
         const missing: string[] = [];
@@ -95,9 +96,9 @@ function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
           state.logIncident("high", `Gate block: ${missing.join(", ")}`);
           return {
             blocked: true,
-            phase: state.state.currentPhase,
+            phase: previousPhase,
             missingCriteria: missing,
-            message: `Cannot advance from ${state.state.currentPhase}. Missing: ${missing.join("; ")}. Use force=true to override.`,
+            message: `Cannot advance from ${previousPhase}. Missing: ${missing.join("; ")}. Use force=true to override.`,
           };
         }
       }
@@ -108,7 +109,7 @@ function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
 
       return {
         advanced: true,
-        from: state.state.currentPhase,
+        from: previousPhase,
         to: next,
         phaseName: CONFIG[next].name,
         criticality: CONFIG[next].criticality,

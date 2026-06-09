@@ -186,7 +186,7 @@ export interface StateManager {
     recentIncidents: { ts: number; phase: Phase; severity: string; detail: string }[];
     recommendations: string[];
   };
-  onChange: (callback: (phase: Phase) => void) => void;
+  onChange: (callback: (phase: Phase, gateResults: Record<string, boolean>) => void) => void;
 }
 
 export function createState(initialPhase: Phase = "P"): StateManager {
@@ -203,7 +203,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   const subscribers: Array<(phase: Phase) => void> = [];
 
   function notifySubscribers(phase: Phase): void {
-    subscribers.forEach(callback => callback(phase));
+    subscribers.forEach(callback => callback(phase, state.gateResults));
   }
 
   function normalizeGateKey(key: string): string {
@@ -253,7 +253,13 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   }
 
   function setGateResult(gateId: string, passed: boolean): void {
-    state.gateResults[normalizeGateKey(gateId)] = passed;
+    const normalized = normalizeGateKey(gateId);
+    const valid = GATES.some(g => g.id === normalized);
+    if (!valid) {
+      console.warn(`Unknown gate ID: ${gateId}`);
+      return;
+    }
+    state.gateResults[normalized] = passed;
   }
 
   function toJSON(): string {
@@ -469,6 +475,7 @@ function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
     execute: async (params: ToolParams) => {
       const force = (params.force as boolean) ?? false;
       const cfg = getPhaseConfig(state.state.currentPhase);
+      const previousPhase = state.state.currentPhase;
 
       if (!force) {
         const missing: string[] = [];
@@ -480,9 +487,9 @@ function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
           state.logIncident("high", `Gate block: ${missing.join(", ")}`);
           return {
             blocked: true,
-            phase: state.state.currentPhase,
+            phase: previousPhase,
             missingCriteria: missing,
-            message: `Cannot advance from ${state.state.currentPhase}. Missing: ${missing.join("; ")}. Use force=true to override.`,
+            message: `Cannot advance from ${previousPhase}. Missing: ${missing.join("; ")}. Use force=true to override.`,
           };
         }
       }
@@ -493,7 +500,7 @@ function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
 
       return {
         advanced: true,
-        from: state.state.currentPhase,
+        from: previousPhase,
         to: next,
         phaseName: CONFIG[next].name,
         criticality: CONFIG[next].criticality,
@@ -832,10 +839,10 @@ export default function (pi: ExtensionAPI) {
     CONFIG[state.state.currentPhase].criticality
   );
 
-  state.onChange((newPhase) => {
+  state.onChange((newPhase, gateResults) => {
     const cfg = CONFIG[newPhase];
     guard.update(newPhase, cfg.blockedTools);
-    sessionGuard.update(newPhase, cfg.criticality, state.state.gateResults);
+    sessionGuard.update(newPhase, cfg.criticality, gateResults);
   });
 
   const ctx = {

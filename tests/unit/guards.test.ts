@@ -41,6 +41,12 @@ describe("Tool Guard", () => {
     assert.strictEqual(guard.check("write").blocked, true);
     assert.ok(guard.check("write").reason?.includes("Review"));
   });
+
+  it("should validate gate IDs", () => {
+    const guard = createToolGuard("P", []);
+    // Valid gates should work
+    assert.strictEqual(guard.check("write").blocked, false);
+  });
 });
 
 describe("Session Guard", () => {

@@ -36,7 +36,7 @@ export interface StateManager {
     recentIncidents: { ts: number; phase: Phase; severity: string; detail: string }[];
     recommendations: string[];
   };
-  onChange: (callback: (phase: Phase) => void) => void;
+  onChange: (callback: (phase: Phase, gateResults: Record<string, boolean>) => void) => void;
 }
 
 export function createState(initialPhase: Phase = "P"): StateManager {
@@ -53,7 +53,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   const subscribers: Array<(phase: Phase) => void> = [];
 
   function notifySubscribers(phase: Phase): void {
-    subscribers.forEach(callback => callback(phase));
+    subscribers.forEach(callback => callback(phase, state.gateResults));
   }
 
   function normalizeGateKey(key: string): string {
@@ -103,7 +103,13 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   }
 
   function setGateResult(gateId: string, passed: boolean): void {
-    state.gateResults[normalizeGateKey(gateId)] = passed;
+    const normalized = normalizeGateKey(gateId);
+    const valid = GATES.some(g => g.id === normalized);
+    if (!valid) {
+      console.warn(`Unknown gate ID: ${gateId}`);
+      return;
+    }
+    state.gateResults[normalized] = passed;
   }
 
   function toJSON(): string {

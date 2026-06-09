@@ -11,10 +11,10 @@ export default function (pi: ExtensionAPI) {
     CONFIG[state.state.currentPhase].criticality
   );
 
-  state.onChange(() => {
-    const cfg = CONFIG[state.state.currentPhase];
-    guard.update(state.state.currentPhase, cfg.blockedTools);
-    sessionGuard.update(state.state.currentPhase, cfg.criticality, state.state.gateResults);
+  state.onChange((newPhase, gateResults) => {
+    const cfg = CONFIG[newPhase];
+    guard.update(newPhase, cfg.blockedTools);
+    sessionGuard.update(newPhase, cfg.criticality, gateResults);
   });
 
   const ctx = {

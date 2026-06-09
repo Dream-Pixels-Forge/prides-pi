@@ -39,9 +39,11 @@ describe("State Manager", () => {
   it("should notify subscribers on phase change", () => {
     const state = createState();
     let notifiedPhase: string | null = null;
-    state.onChange((phase) => { notifiedPhase = phase; });
+    let notifiedGates: Record<string, boolean> | null = null;
+    state.onChange((phase, gateResults) => { notifiedPhase = phase; notifiedGates = gateResults; });
     state.setPhase("I");
     assert.strictEqual(notifiedPhase, "I");
+    assert.strictEqual(notifiedGates, state.state.gateResults);
   });
 
   it("should notify subscribers on advancePhase", () => {
