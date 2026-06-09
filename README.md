@@ -19,12 +19,59 @@ PRIDES (Prototype, Review, Implement, Deploy, Extend, Secure) is a mandatory, li
 ## Installation
 
 ```bash
-# Via PI
-pi install Dream-Pixels-Forge/prides-pi
+# Via PI (recommended)
+pi install https://github.com/Dream-Pixels-Forge/prides-pi.git
 
 # Or manually
 cp prides.ts ~/.pi/agent/extensions/prides.ts
 ```
+
+## Development (TDD — Non-Negotiable)
+
+This project is strictly test-driven. Every change must:
+
+1. **Write failing test first** — define the expected behavior
+2. **Implement minimum code** — just enough to pass
+3. **Refactor** — clean up while keeping tests green
+4. **Never commit without green tests**
+
+```bash
+# Run tests (uses Node built-in test runner + tsx)
+npm test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Bundle src/ → prides.ts before publishing
+npm run bundle
+```
+
+### Project Structure
+
+```
+prides-pi/
+├── src/                    # Source modules (TDD target)
+│   ├── config.ts          # Phase definitions and heartbeats
+│   ├── gates.ts           # Quality gate definitions
+│   ├── state.ts           # State manager (pure logic)
+│   ├── guards.ts          # Tool & session guards
+│   ├── tools.ts           # Tool definitions factory
+│   ├── commands.ts        # Slash command builder
+│   └── index.ts           # Public API exports
+├── tests/
+│   └── unit/              # Unit tests (node:test)
+├── scripts/
+│   └── bundle.ts          # Bundles src/*.ts → prides.ts
+├── prides.ts              # Bundled extension (committed, PI loads this)
+├── package.json
+└── README.md
+```
+
+### Test Coverage Requirements
+
+- **100% of public APIs must have tests**
+- Tests are run on every commit via `prepublishOnly`
+- No PR merged without green test suite
 
 ## Usage
 
