@@ -1,4 +1,4 @@
-import { PHASES, type Phase, type PhaseConfig } from "./config.js";
+import { PHASES, type Phase, type PhaseConfig, CONFIG } from "./config.js";
 
 export interface PRIDESState {
   currentPhase: Phase;
@@ -46,11 +46,6 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   function nextPhase(): Phase {
     const idx = PHASES.indexOf(state.currentPhase);
     return PHASES[(idx + 1) % PHASES.length];
-  }
-
-  function prevPhase(): Phase | null {
-    const idx = PHASES.indexOf(state.currentPhase);
-    return idx > 0 ? PHASES[idx - 1] : null;
   }
 
   function setPhase(phase: Phase): void {
@@ -132,7 +127,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
 
     return {
       currentPhase: state.currentPhase,
-      phaseName: "Prototype", // simplified for test
+      phaseName: CONFIG[state.currentPhase].name,
       sessionStarted: state.startedAt,
       totalArtifacts: state.artifacts.length,
       totalIncidents: state.incidents.length,

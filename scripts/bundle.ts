@@ -19,7 +19,10 @@ let output = `"""PRIDES PI Extension — bundled from src/*.ts"""\n\n`;
 
 for (const file of ORDER) {
   const path = join(SRC, file);
-  const content = readFileSync(path, "utf-8");
+  let content = readFileSync(path, "utf-8");
+  // Strip local imports and re-exports for bundled context
+  content = content.replace(/^import\s+.*from\s+["']\.[^"']*["'];?\s*\n/gm, "");
+  content = content.replace(/^export\s+\{.*\}\s+from\s+["'][^"']*["'];?\s*\n/gm, "");
   output += `/* ─── ${file} ─── */\n`;
   output += content.trim();
   output += "\n\n";

@@ -1,65 +1,21 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildTools, buildCommand, createToolGuard, createSessionGuard, PHASES, type Phase } from "./src/index.js";
+import { buildTools, buildCommand, createToolGuard, createSessionGuard, PHASES, type Phase, CONFIG, createState } from "./index.js";
 
 // ── Extension entry point ────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-  const state = {
-    currentPhase: "P" as Phase,
-    phaseIndex: 0,
-    gateResults: {} as Record<string, boolean>,
-    heartbeats: [] as any[],
-    incidents: [] as any[],
-    artifacts: [] as any[],
-    startedAt: new Date().toISOString(),
-  };
+  const state = createState("P");
 
-  const guard = createToolGuard(state.currentPhase, []);
-  const sessionGuard = createSessionGuard(state.currentPhase, state.gateResults, "high", []);
+  const guard = createToolGuard(state.state.currentPhase, CONFIG[state.state.currentPhase].blockedTools);
+  const sessionGuard = createSessionGuard(
+    state.state.currentPhase,
+    state.state.gateResults,
+    CONFIG[state.state.currentPhase].criticality,
+    []
+  );
 
   const ctx = {
-    state: {
-      state,
-      setPhase: (phase: Phase) => {
-        state.currentPhase = phase;
-        state.phaseIndex = PHASES.indexOf(phase);
-      },
-      advancePhase: () => {
-        const idx = PHASES.indexOf(state.currentPhase);
-        const next = PHASES[(idx + 1) % PHASES.length];
-        state.currentPhase = next;
-        state.phaseIndex = PHASES.indexOf(next);
-        state.artifacts.push({ phase: next, name: `phase-${next}-init` });
-        return next;
-      },
-      recordHeartbeat: (status: string, intent?: string) => {
-        state.heartbeats.push({ ts: Date.now(), phase: state.currentPhase, status, intent });
-      },
-      logIncident: (severity: string, detail: string) => {
-        state.incidents.push({ ts: Date.now(), phase: state.currentPhase, severity, detail });
-      },
-      logArtifact: (phase: Phase, name: string, hash?: string) => {
-        state.artifacts.push({ phase, name, hash });
-      },
-      setGateResult: (gateId: string, passed: boolean) => {
-        state.gateResults[gateId] = passed;
-      },
-      toJSON: () => JSON.stringify(state),
-      fromJSON: (json: string) => {
-        const parsed = JSON.parse(json);
-        Object.assign(state, parsed);
-      },
-      getReport: () => ({
-        currentPhase: state.currentPhase,
-        phaseName: "Prototype",
-        sessionStarted: state.startedAt,
-        totalArtifacts: state.artifacts.length,
-        totalIncidents: state.incidents.length,
-        gates: [],
-        recentIncidents: state.incidents.slice(-5),
-        recommendations: [],
-      }),
-    } as any,
+    state,
     sendMessage: pi.sendUserMessage.bind(pi),
   };
 
@@ -88,7 +44,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.events.on("session_start", () => {
     try {
-      pi.sendUserMessage(`PRIDES v1.1.0 ready — Phase ${state.currentPhase}`, { deliverAs: "nextTurn" });
+      pi.sendUserMessage(`PRIDES v1.1.0 ready — Phase ${state.state.currentPhase}`, { deliverAs: "nextTurn" });
     } catch {}
   });
 }

@@ -151,8 +151,6 @@ export function validateGate(gateId: string): GateValidationResult {
 }
 
 /* ─── state.ts ─── */
-import { PHASES, type Phase, type PhaseConfig } from "./config.js";
-
 export interface PRIDESState {
   currentPhase: Phase;
   phaseIndex: number;
@@ -199,11 +197,6 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   function nextPhase(): Phase {
     const idx = PHASES.indexOf(state.currentPhase);
     return PHASES[(idx + 1) % PHASES.length];
-  }
-
-  function prevPhase(): Phase | null {
-    const idx = PHASES.indexOf(state.currentPhase);
-    return idx > 0 ? PHASES[idx - 1] : null;
   }
 
   function setPhase(phase: Phase): void {
@@ -285,7 +278,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
 
     return {
       currentPhase: state.currentPhase,
-      phaseName: "Prototype", // simplified for test
+      phaseName: CONFIG[state.currentPhase].name,
       sessionStarted: state.startedAt,
       totalArtifacts: state.artifacts.length,
       totalIncidents: state.incidents.length,
@@ -310,8 +303,6 @@ export function createState(initialPhase: Phase = "P"): StateManager {
 }
 
 /* ─── guards.ts ─── */
-import { getPhaseConfig, type Phase } from "./config.js";
-
 export interface ToolGuard {
   check: (toolName: string) => { blocked: boolean; reason?: string };
 }
@@ -362,11 +353,6 @@ export function createSessionGuard(
 
 /* ─── tools.ts ─── */
 import type { ExtensionAPI, ToolDefinition, RegisteredCommand } from "@earendil-works/pi-coding-agent";
-import { PHASES, type Phase, CONFIG, getPhaseConfig } from "./config.js";
-import { createState, type StateManager } from "./state.js";
-import { GATES, validateGate } from "./gates.js";
-import { createToolGuard } from "./guards.js";
-
 // ── Type helpers ─────────────────────────────────────────────────────────
 
 type ToolParams = Record<string, unknown>;
@@ -731,14 +717,55 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
         case "status":
         case "s": {
           const tool = ctx.tools.find(t => t.name === "prides_status");
-          if (!tool) return;
+          if (!tool) return "Error: prides_status tool not found";
           const result = await tool.execute({});
-          ctx.state.state; // Type assertion
-          break;
+          return `Phase: ${result.phase} (${result.phaseName}) | Heartbeat: ${result.heartbeat.status} | Gates: ${result.gatesPassed}/${result.gatesTotal}`;
+        }
+        case "next": {
+          const tool = ctx.tools.find(t => t.name === "prides_phase_advance");
+          if (!tool) return "Error: prides_phase_advance tool not found";
+          const result = await tool.execute({ force: false });
+          if (result.blocked) {
+            return `Blocked: ${result.message}`;
+          }
+          return `${result.message} (next: ${result.nextPhase})`;
+        }
+        case "gates":
+        case "g": {
+          const tool = ctx.tools.find(t => t.name === "prides_gates");
+          if (!tool) return "Error: prides_gates tool not found";
+          const result = await tool.execute({});
+          return result.message;
+        }
+        case "hb":
+        case "heartbeat": {
+          const tool = ctx.tools.find(t => t.name === "prides_heartbeat");
+          if (!tool) return "Error: prides_heartbeat tool not found";
+          const result = await tool.execute({ status: "healthy" });
+          return result.message;
+        }
+        case "stop": {
+          const tool = ctx.tools.find(t => t.name === "prides_emergency_stop");
+          if (!tool) return "Error: prides_emergency_stop tool not found";
+          const result = await tool.execute({ reason: "Manual emergency stop via /prides stop" });
+          return result.message;
+        }
+        case "report":
+        case "r": {
+          const tool = ctx.tools.find(t => t.name === "prides_report");
+          if (!tool) return "Error: prides_report tool not found";
+          const result = await tool.execute({});
+          const r = result.report;
+          return `Phase: ${r.currentPhase} | Artifacts: ${r.totalArtifacts} | Incidents: ${r.totalIncidents}\nRecommendations: ${r.recommendations.join("; ") || "None"}`;
+        }
+        case "scaffold": {
+          const tool = ctx.tools.find(t => t.name === "prides_scaffold");
+          if (!tool) return "Error: prides_scaffold tool not found";
+          const result = await tool.execute({});
+          return `${result.message}\nDirectories: ${result.directories.join(", ")}`;
         }
         default: {
-          // Help text
-          break;
+          return "PRIDES commands: status, next, gates, hb, stop, report, scaffold";
         }
       }
     },
@@ -746,76 +773,25 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
 }
 
 /* ─── index.ts ─── */
-export { PHASES, type Phase } from "./config.js";
-export { CONFIG, getPhaseConfig } from "./config.js";
-export { GATES, validateGate, type Gate } from "./gates.js";
-export { createState, type PRIDESState, type StateManager } from "./state.js";
-export { createToolGuard, createSessionGuard, type ToolGuard, type SessionGuard } from "./guards.js";
-export { buildTools, buildCommand, type ToolContext } from "./tools.js";
+
 
 /* ─── extension.ts ─── */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildTools, buildCommand, createToolGuard, createSessionGuard, PHASES, type Phase } from "./src/index.js";
-
 // ── Extension entry point ────────────────────────────────────────────────
 
 export default function (pi: ExtensionAPI) {
-  const state = {
-    currentPhase: "P" as Phase,
-    phaseIndex: 0,
-    gateResults: {} as Record<string, boolean>,
-    heartbeats: [] as any[],
-    incidents: [] as any[],
-    artifacts: [] as any[],
-    startedAt: new Date().toISOString(),
-  };
+  const state = createState("P");
 
-  const guard = createToolGuard(state.currentPhase, []);
-  const sessionGuard = createSessionGuard(state.currentPhase, state.gateResults, "high", []);
+  const guard = createToolGuard(state.state.currentPhase, CONFIG[state.state.currentPhase].blockedTools);
+  const sessionGuard = createSessionGuard(
+    state.state.currentPhase,
+    state.state.gateResults,
+    CONFIG[state.state.currentPhase].criticality,
+    []
+  );
 
   const ctx = {
-    state: {
-      state,
-      setPhase: (phase: Phase) => {
-        state.currentPhase = phase;
-        state.phaseIndex = PHASES.indexOf(phase);
-      },
-      advancePhase: () => {
-        const idx = PHASES.indexOf(state.currentPhase);
-        const next = PHASES[(idx + 1) % PHASES.length];
-        state.currentPhase = next;
-        state.phaseIndex = PHASES.indexOf(next);
-        state.artifacts.push({ phase: next, name: `phase-${next}-init` });
-        return next;
-      },
-      recordHeartbeat: (status: string, intent?: string) => {
-        state.heartbeats.push({ ts: Date.now(), phase: state.currentPhase, status, intent });
-      },
-      logIncident: (severity: string, detail: string) => {
-        state.incidents.push({ ts: Date.now(), phase: state.currentPhase, severity, detail });
-      },
-      logArtifact: (phase: Phase, name: string, hash?: string) => {
-        state.artifacts.push({ phase, name, hash });
-      },
-      setGateResult: (gateId: string, passed: boolean) => {
-        state.gateResults[gateId] = passed;
-      },
-      toJSON: () => JSON.stringify(state),
-      fromJSON: (json: string) => {
-        const parsed = JSON.parse(json);
-        Object.assign(state, parsed);
-      },
-      getReport: () => ({
-        currentPhase: state.currentPhase,
-        phaseName: "Prototype",
-        sessionStarted: state.startedAt,
-        totalArtifacts: state.artifacts.length,
-        totalIncidents: state.incidents.length,
-        gates: [],
-        recentIncidents: state.incidents.slice(-5),
-        recommendations: [],
-      }),
-    } as any,
+    state,
     sendMessage: pi.sendUserMessage.bind(pi),
   };
 
@@ -844,7 +820,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.events.on("session_start", () => {
     try {
-      pi.sendUserMessage(`PRIDES v1.1.0 ready — Phase ${state.currentPhase}`, { deliverAs: "nextTurn" });
+      pi.sendUserMessage(`PRIDES v1.1.0 ready — Phase ${state.state.currentPhase}`, { deliverAs: "nextTurn" });
     } catch {}
   });
 }

@@ -368,14 +368,55 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
         case "status":
         case "s": {
           const tool = ctx.tools.find(t => t.name === "prides_status");
-          if (!tool) return;
+          if (!tool) return "Error: prides_status tool not found";
           const result = await tool.execute({});
-          ctx.state.state; // Type assertion
-          break;
+          return `Phase: ${result.phase} (${result.phaseName}) | Heartbeat: ${result.heartbeat.status} | Gates: ${result.gatesPassed}/${result.gatesTotal}`;
+        }
+        case "next": {
+          const tool = ctx.tools.find(t => t.name === "prides_phase_advance");
+          if (!tool) return "Error: prides_phase_advance tool not found";
+          const result = await tool.execute({ force: false });
+          if (result.blocked) {
+            return `Blocked: ${result.message}`;
+          }
+          return `${result.message} (next: ${result.nextPhase})`;
+        }
+        case "gates":
+        case "g": {
+          const tool = ctx.tools.find(t => t.name === "prides_gates");
+          if (!tool) return "Error: prides_gates tool not found";
+          const result = await tool.execute({});
+          return result.message;
+        }
+        case "hb":
+        case "heartbeat": {
+          const tool = ctx.tools.find(t => t.name === "prides_heartbeat");
+          if (!tool) return "Error: prides_heartbeat tool not found";
+          const result = await tool.execute({ status: "healthy" });
+          return result.message;
+        }
+        case "stop": {
+          const tool = ctx.tools.find(t => t.name === "prides_emergency_stop");
+          if (!tool) return "Error: prides_emergency_stop tool not found";
+          const result = await tool.execute({ reason: "Manual emergency stop via /prides stop" });
+          return result.message;
+        }
+        case "report":
+        case "r": {
+          const tool = ctx.tools.find(t => t.name === "prides_report");
+          if (!tool) return "Error: prides_report tool not found";
+          const result = await tool.execute({});
+          const r = result.report;
+          return `Phase: ${r.currentPhase} | Artifacts: ${r.totalArtifacts} | Incidents: ${r.totalIncidents}\nRecommendations: ${r.recommendations.join("; ") || "None"}`;
+        }
+        case "scaffold": {
+          const tool = ctx.tools.find(t => t.name === "prides_scaffold");
+          if (!tool) return "Error: prides_scaffold tool not found";
+          const result = await tool.execute({});
+          return `${result.message}\nDirectories: ${result.directories.join(", ")}`;
         }
         default: {
-          // Help text
-          break;
+          return "PRIDES commands: status, next, gates, hb, stop, report, scaffold";
         }
       }
     },
