@@ -1,0 +1,36 @@
+{
+  "name": "@dream-pixels-forge/prides-pi",
+  "version": "1.0.0",
+  "description": "PRIDES methodology extension for PI coding agent — quality-gated SDLC with phase progression, heartbeat monitoring, and emergency stop",
+  "main": "prides.ts",
+  "types": "prides.ts",
+  "scripts": {
+    "test": "pi -e prides.ts --help"
+  },
+  "keywords": [
+    "pi",
+    "pi-coding-agent",
+    "prides",
+    "sdlc",
+    "quality-gates",
+    "ai-agent",
+    "extension",
+    "dream-pixels-forge"
+  ],
+  "author": "Dream-Pixels-Forge <dimona.patrick@gmail.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dream-Pixels-Forge/prides-pi.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Dream-Pixels-Forge/prides-pi/issues"
+  },
+  "homepage": "https://github.com/Dream-Pixels-Forge/prides-pi#readme",
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": ">=0.1.0"
+  },
+  "engines": {
+    "pi": ">=0.1.0"
+  }
+}
