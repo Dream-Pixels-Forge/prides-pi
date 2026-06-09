@@ -1,8 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
 import { createState } from "../../src/state.js";
+import { HEARTBEAT_THRESHOLDS } from "../../src/state.js";
 
-// ── Unit tests for state manager ─────────────────────────────────────────
+describe("Heartbeat Thresholds", () => {
+  it("should export heartbeat threshold constants", () => {
+    assert.strictEqual(HEARTBEAT_THRESHOLDS.HEALTHY, 2);
+    assert.strictEqual(HEARTBEAT_THRESHOLDS.DEGRADED, 4);
+  });
+});
 
 describe("State Manager", () => {
   it("should create initial state in Phase P", () => {
@@ -19,6 +25,39 @@ describe("State Manager", () => {
   it("should allow phase transitions", () => {
     const state = createState();
     assert.strictEqual(state.state.currentPhase, "P");
+  });
+
+  it("should advance phase correctly", () => {
+    const state = createState();
+    const next = state.advancePhase();
+    assert.strictEqual(next, "R");
+    assert.strictEqual(state.state.currentPhase, "R");
+    assert.strictEqual(state.state.phaseIndex, 1);
+    assert.ok(state.state.artifacts.some(a => a.name === "phase-R-init"));
+  });
+
+  it("should notify subscribers on phase change", () => {
+    const state = createState();
+    let notifiedPhase: string | null = null;
+    state.onChange((phase) => { notifiedPhase = phase; });
+    state.setPhase("I");
+    assert.strictEqual(notifiedPhase, "I");
+  });
+
+  it("should notify subscribers on advancePhase", () => {
+    const state = createState();
+    let notifiedPhase: string | null = null;
+    state.onChange((phase) => { notifiedPhase = phase; });
+    state.advancePhase();
+    assert.strictEqual(notifiedPhase, "R");
+  });
+
+  it("should normalize gate keys", () => {
+    const state = createState();
+    state.setGateResult("Code Review", true);
+    assert.strictEqual(state.state.gateResults["code-review"], true);
+    state.setGateResult("Test Coverage", false);
+    assert.strictEqual(state.state.gateResults["test-coverage"], false);
   });
 
   it("should record heartbeats", () => {
@@ -81,5 +120,14 @@ describe("State Manager", () => {
     assert.strictEqual(report.currentPhase, "P");
     assert.ok(Array.isArray(report.gates));
     assert.ok(Array.isArray(report.recommendations));
+  });
+
+  it("should report correct phase name after phase change", () => {
+    const state = createState();
+    assert.strictEqual(state.getReport().phaseName, "Prototype");
+    state.setPhase("I");
+    assert.strictEqual(state.getReport().phaseName, "Implement");
+    state.setPhase("S");
+    assert.strictEqual(state.getReport().phaseName, "Secure");
   });
 });

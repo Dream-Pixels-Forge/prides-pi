@@ -2,8 +2,6 @@ import { describe, it } from "node:test";
 import assert from "node:assert";
 import { createToolGuard, createSessionGuard } from "../../src/guards.js";
 
-// ── Unit tests for guards ────────────────────────────────────────────────
-
 describe("Tool Guard", () => {
   it("should allow non-blocked tools", () => {
     const guard = createToolGuard("P", ["write", "edit"]);
@@ -35,22 +33,25 @@ describe("Tool Guard", () => {
     assert.ok(result.reason?.includes("D"));
     assert.ok(result.reason?.includes("Deploy"));
   });
+
+  it("should update guard when phase changes", () => {
+    const guard = createToolGuard("P", []);
+    assert.strictEqual(guard.check("write").blocked, false);
+    guard.update("R", ["write", "edit"]);
+    assert.strictEqual(guard.check("write").blocked, true);
+    assert.ok(guard.check("write").reason?.includes("Review"));
+  });
 });
 
 describe("Session Guard", () => {
-  const gates = [
-    { id: "code-review", name: "Code Review" },
-    { id: "test-coverage", name: "Test Coverage" },
-  ];
-
   it("should allow session switch when no gates are failing", () => {
-    const guard = createSessionGuard("P", {}, "high", []);
+    const guard = createSessionGuard("P", {}, "high");
     assert.strictEqual(guard.check().blocked, false);
   });
 
   it("should block session switch when critical phase has failing gates", () => {
     const gateResults = { "code-review": false, "test-coverage": false };
-    const guard = createSessionGuard("I", gateResults, "critical", gates);
+    const guard = createSessionGuard("I", gateResults, "critical");
     const result = guard.check();
     assert.strictEqual(result.blocked, true);
     assert.ok(result.reason?.includes("critical"));
@@ -58,13 +59,20 @@ describe("Session Guard", () => {
 
   it("should allow session switch in non-critical phase with failing gates", () => {
     const gateResults = { "code-review": false };
-    const guard = createSessionGuard("E", gateResults, "medium", gates);
+    const guard = createSessionGuard("E", gateResults, "medium");
     assert.strictEqual(guard.check().blocked, false);
   });
 
   it("should allow session switch in critical phase with all gates passing", () => {
-    const gateResults = { "code-review": true, "test-coverage": true };
-    const guard = createSessionGuard("I", gateResults, "critical", gates);
+    const gateResults = { "code-review": true, "test-coverage": true, "security": true, "performance": true, "accessibility": true };
+    const guard = createSessionGuard("I", gateResults, "critical");
+    assert.strictEqual(guard.check().blocked, false);
+  });
+
+  it("should update guard when phase changes", () => {
+    const guard = createSessionGuard("P", {}, "high");
+    assert.strictEqual(guard.check().blocked, false);
+    guard.update("I", "critical", { "code-review": true, "test-coverage": true, "security": true, "performance": true, "accessibility": true });
     assert.strictEqual(guard.check().blocked, false);
   });
 });

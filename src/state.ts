@@ -1,4 +1,10 @@
-import { PHASES, type Phase, type PhaseConfig, CONFIG } from "./config.js";
+import { PHASES, type Phase, CONFIG } from "./config.js";
+import { GATES } from "./gates.js";
+
+export const HEARTBEAT_THRESHOLDS = {
+  HEALTHY: 2,
+  DEGRADED: 4,
+} as const;
 
 export interface PRIDESState {
   currentPhase: Phase;
@@ -11,7 +17,7 @@ export interface PRIDESState {
 }
 
 export interface StateManager {
-  state: PRIDESState;
+  readonly state: PRIDESState;
   setPhase: (phase: Phase) => void;
   advancePhase: () => Phase;
   recordHeartbeat: (status: "healthy" | "drifting" | "stalled", intent?: string) => void;
@@ -30,6 +36,7 @@ export interface StateManager {
     recentIncidents: { ts: number; phase: Phase; severity: string; detail: string }[];
     recommendations: string[];
   };
+  onChange: (callback: (phase: Phase) => void) => void;
 }
 
 export function createState(initialPhase: Phase = "P"): StateManager {
@@ -43,6 +50,16 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     startedAt: new Date().toISOString(),
   };
 
+  const subscribers: Array<(phase: Phase) => void> = [];
+
+  function notifySubscribers(phase: Phase): void {
+    subscribers.forEach(callback => callback(phase));
+  }
+
+  function normalizeGateKey(key: string): string {
+    return key.toLowerCase().replace(/\s+/g, "-");
+  }
+
   function nextPhase(): Phase {
     const idx = PHASES.indexOf(state.currentPhase);
     return PHASES[(idx + 1) % PHASES.length];
@@ -51,6 +68,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   function setPhase(phase: Phase): void {
     state.currentPhase = phase;
     state.phaseIndex = PHASES.indexOf(phase);
+    notifySubscribers(phase);
   }
 
   function advancePhase(): Phase {
@@ -58,6 +76,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     state.currentPhase = next;
     state.phaseIndex = PHASES.indexOf(next);
     state.artifacts.push({ phase: next, name: `phase-${next}-init` });
+    notifySubscribers(next);
     return next;
   }
 
@@ -84,7 +103,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   }
 
   function setGateResult(gateId: string, passed: boolean): void {
-    state.gateResults[gateId] = passed;
+    state.gateResults[normalizeGateKey(gateId)] = passed;
   }
 
   function toJSON(): string {
@@ -103,13 +122,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   }
 
   function getReport() {
-    const gates = [
-      { id: "code-review", name: "Code Review", threshold: ">=2 approvals, 0 blocking comments" },
-      { id: "test-coverage", name: "Test Coverage", threshold: ">80% line coverage" },
-      { id: "security", name: "Security Scan", threshold: "Zero critical/high CVSS" },
-      { id: "performance", name: "Performance", threshold: "p95 <= target" },
-      { id: "accessibility", name: "Accessibility", threshold: "WCAG 2.1 AA" },
-    ].map(g => ({
+    const gates = GATES.map(g => ({
       id: g.id,
       name: g.name,
       passed: state.gateResults[g.id] ?? false,
@@ -138,7 +151,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   }
 
   return {
-    state,
+    get state() { return state; },
     setPhase,
     advancePhase,
     recordHeartbeat,
@@ -148,5 +161,8 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     toJSON,
     fromJSON,
     getReport,
+    onChange: (callback: (phase: Phase) => void) => {
+      subscribers.push(callback);
+    },
   };
 }

@@ -1,8 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { buildTools, buildCommand, createToolGuard, createSessionGuard, PHASES, type Phase, CONFIG, createState } from "./index.js";
 
-// ── Extension entry point ────────────────────────────────────────────────
-
 export default function (pi: ExtensionAPI) {
   const state = createState("P");
 
@@ -10,12 +8,19 @@ export default function (pi: ExtensionAPI) {
   const sessionGuard = createSessionGuard(
     state.state.currentPhase,
     state.state.gateResults,
-    CONFIG[state.state.currentPhase].criticality,
-    []
+    CONFIG[state.state.currentPhase].criticality
   );
+
+  state.onChange((newPhase) => {
+    const cfg = CONFIG[newPhase];
+    guard.update(newPhase, cfg.blockedTools);
+    sessionGuard.update(newPhase, cfg.criticality, state.state.gateResults);
+  });
 
   const ctx = {
     state,
+    guard,
+    sessionGuard,
     sendMessage: pi.sendUserMessage.bind(pi),
   };
 

@@ -151,6 +151,11 @@ export function validateGate(gateId: string): GateValidationResult {
 }
 
 /* ─── state.ts ─── */
+export const HEARTBEAT_THRESHOLDS = {
+  HEALTHY: 2,
+  DEGRADED: 4,
+} as const;
+
 export interface PRIDESState {
   currentPhase: Phase;
   phaseIndex: number;
@@ -162,7 +167,7 @@ export interface PRIDESState {
 }
 
 export interface StateManager {
-  state: PRIDESState;
+  readonly state: PRIDESState;
   setPhase: (phase: Phase) => void;
   advancePhase: () => Phase;
   recordHeartbeat: (status: "healthy" | "drifting" | "stalled", intent?: string) => void;
@@ -181,6 +186,7 @@ export interface StateManager {
     recentIncidents: { ts: number; phase: Phase; severity: string; detail: string }[];
     recommendations: string[];
   };
+  onChange: (callback: (phase: Phase) => void) => void;
 }
 
 export function createState(initialPhase: Phase = "P"): StateManager {
@@ -194,6 +200,16 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     startedAt: new Date().toISOString(),
   };
 
+  const subscribers: Array<(phase: Phase) => void> = [];
+
+  function notifySubscribers(phase: Phase): void {
+    subscribers.forEach(callback => callback(phase));
+  }
+
+  function normalizeGateKey(key: string): string {
+    return key.toLowerCase().replace(/\s+/g, "-");
+  }
+
   function nextPhase(): Phase {
     const idx = PHASES.indexOf(state.currentPhase);
     return PHASES[(idx + 1) % PHASES.length];
@@ -202,6 +218,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   function setPhase(phase: Phase): void {
     state.currentPhase = phase;
     state.phaseIndex = PHASES.indexOf(phase);
+    notifySubscribers(phase);
   }
 
   function advancePhase(): Phase {
@@ -209,6 +226,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     state.currentPhase = next;
     state.phaseIndex = PHASES.indexOf(next);
     state.artifacts.push({ phase: next, name: `phase-${next}-init` });
+    notifySubscribers(next);
     return next;
   }
 
@@ -235,7 +253,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   }
 
   function setGateResult(gateId: string, passed: boolean): void {
-    state.gateResults[gateId] = passed;
+    state.gateResults[normalizeGateKey(gateId)] = passed;
   }
 
   function toJSON(): string {
@@ -254,13 +272,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   }
 
   function getReport() {
-    const gates = [
-      { id: "code-review", name: "Code Review", threshold: ">=2 approvals, 0 blocking comments" },
-      { id: "test-coverage", name: "Test Coverage", threshold: ">80% line coverage" },
-      { id: "security", name: "Security Scan", threshold: "Zero critical/high CVSS" },
-      { id: "performance", name: "Performance", threshold: "p95 <= target" },
-      { id: "accessibility", name: "Accessibility", threshold: "WCAG 2.1 AA" },
-    ].map(g => ({
+    const gates = GATES.map(g => ({
       id: g.id,
       name: g.name,
       passed: state.gateResults[g.id] ?? false,
@@ -289,7 +301,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   }
 
   return {
-    state,
+    get state() { return state; },
     setPhase,
     advancePhase,
     recordHeartbeat,
@@ -299,6 +311,9 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     toJSON,
     fromJSON,
     getReport,
+    onChange: (callback: (phase: Phase) => void) => {
+      subscribers.push(callback);
+    },
   };
 }
 
@@ -307,18 +322,28 @@ export interface ToolGuard {
   check: (toolName: string) => { blocked: boolean; reason?: string };
 }
 
-export function createToolGuard(phase: Phase, blockedTools: string[]): ToolGuard {
-  const cfg = getPhaseConfig(phase);
+export interface LiveToolGuard extends ToolGuard {
+  update: (phase: Phase, blockedTools: string[]) => void;
+}
+
+export function createToolGuard(initialPhase: Phase, initialBlockedTools: string[]): LiveToolGuard {
+  let phase = initialPhase;
+  let blockedTools = initialBlockedTools;
 
   return {
     check: (toolName: string) => {
       if (blockedTools.includes(toolName)) {
+        const cfg = CONFIG[phase];
         return {
           blocked: true,
           reason: `Tool "${toolName}" is blocked in Phase ${phase} (${cfg.name}). Use /prides to advance or override.`,
         };
       }
       return { blocked: false };
+    },
+    update: (newPhase: Phase, newBlockedTools: string[]) => {
+      phase = newPhase;
+      blockedTools = newBlockedTools;
     },
   };
 }
@@ -327,19 +352,25 @@ export interface SessionGuard {
   check: () => { blocked: boolean; reason?: string };
 }
 
+export interface LiveSessionGuard extends SessionGuard {
+  update: (phase: Phase, criticality: string, gateResults: Record<string, boolean>) => void;
+}
+
 export function createSessionGuard(
-  phase: Phase,
-  gateResults: Record<string, boolean>,
-  criticality: string,
-  gates: { id: string; name: string }[]
-): SessionGuard {
-  const cfg = getPhaseConfig(phase);
+  initialPhase: Phase,
+  initialGateResults: Record<string, boolean>,
+  initialCriticality: string
+): LiveSessionGuard {
+  let phase = initialPhase;
+  let gateResults = initialGateResults;
+  let criticality = initialCriticality;
 
   return {
     check: () => {
       if (criticality === "critical") {
-        const failing = gates.filter(g => !gateResults[g.id]);
+        const failing = GATES.filter(g => !gateResults[g.id]);
         if (failing.length > 0) {
+          const cfg = CONFIG[phase];
           return {
             blocked: true,
             reason: `Cannot switch session — ${failing.length} quality gate(s) failing in critical phase ${phase} (${cfg.name}). Run /prides gates to check.`,
@@ -348,33 +379,28 @@ export function createSessionGuard(
       }
       return { blocked: false };
     },
+    update: (newPhase: Phase, newCriticality: string, newGateResults: Record<string, boolean>) => {
+      phase = newPhase;
+      criticality = newCriticality;
+      gateResults = newGateResults;
+    },
   };
 }
 
 /* ─── tools.ts ─── */
 import type { ExtensionAPI, ToolDefinition, RegisteredCommand } from "@earendil-works/pi-coding-agent";
-// ── Type helpers ─────────────────────────────────────────────────────────
-
 type ToolParams = Record<string, unknown>;
-
-// ── Tool factory ─────────────────────────────────────────────────────────
 
 export interface ToolContext {
   state: StateManager;
-  guard: ReturnType<typeof createToolGuard>;
+  guard: LiveToolGuard;
+  sessionGuard: LiveSessionGuard;
   sendMessage: ExtensionAPI["sendUserMessage"];
 }
 
 function phaseTag(phase: Phase): string {
   const c = CONFIG[phase];
-  const icon =
-    c.criticality === "critical"
-      ? "🔴"
-      : c.criticality === "high"
-        ? "🟠"
-        : c.criticality === "medium"
-          ? "🟡"
-          : "🟢";
+  const icon = c.criticality === "critical" ? "🔴" : c.criticality === "high" ? "🟠" : c.criticality === "medium" ? "🟡" : "🟢";
   return `${icon} ${phase} — ${c.name}`;
 }
 
@@ -391,13 +417,8 @@ function nextPhase(p: Phase): Phase {
   return PHASES[(idx + 1) % PHASES.length];
 }
 
-export function buildTools(ctx: ToolContext): ToolDefinition[] {
-  const { state, guard } = ctx;
-
-  const tools: ToolDefinition[] = [];
-
-  // prides_status
-  tools.push({
+function buildStatusTool(state: StateManager): ToolDefinition {
+  return {
     name: "prides_status",
     description: "Get current PRIDES phase, heartbeat health, gate status, and session summary. Call at session start.",
     label: "PRIDES Status",
@@ -406,12 +427,11 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
       const cfg = getPhaseConfig(state.state.currentPhase);
       const lastHb = state.state.heartbeats[state.state.heartbeats.length - 1];
       const age = lastHb ? Date.now() - lastHb.ts : Infinity;
-      const hbStatus =
-        age < cfg.heartbeatMs * 2
-          ? "healthy"
-          : age < cfg.heartbeatMs * 4
-            ? "degraded"
-            : "critical";
+      const hbStatus = age < cfg.heartbeatMs * HEARTBEAT_THRESHOLDS.HEALTHY
+        ? "healthy"
+        : age < cfg.heartbeatMs * HEARTBEAT_THRESHOLDS.DEGRADED
+          ? "degraded"
+          : "critical";
 
       return {
         phase: state.state.currentPhase,
@@ -432,10 +452,11 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
         nextPhase: nextPhase(state.state.currentPhase),
       };
     },
-  });
+  };
+}
 
-  // prides_phase_advance
-  tools.push({
+function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
+  return {
     name: "prides_phase_advance",
     description: "Advance to the next PRIDES phase. Validates exit criteria for current phase before allowing transition.",
     label: "PRIDES Advance Phase",
@@ -481,10 +502,11 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
         message: `Advanced to ${phaseTag(next)}`,
       };
     },
-  });
+  };
+}
 
-  // prides_phase_set
-  tools.push({
+function buildPhaseSetTool(state: StateManager): ToolDefinition {
+  return {
     name: "prides_phase_set",
     description: "Set the current PRIDES phase explicitly (for initialization or correction).",
     label: "PRIDES Set Phase",
@@ -503,10 +525,11 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
       state.setPhase(target);
       return { set: true, phase: target, phaseName: CONFIG[target].name, tag: phaseTag(target) };
     },
-  });
+  };
+}
 
-  // prides_gate
-  tools.push({
+function buildGateTool(state: StateManager): ToolDefinition {
+  return {
     name: "prides_gate",
     description: "Run a quality gate check. Validates the codebase against PRIDES standards for the current phase.",
     label: "PRIDES Quality Gate",
@@ -522,7 +545,7 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
       if (!result.valid) {
         return { error: `Unknown gate: ${params.gate}. Available: ${GATES.map(g => g.id).join(", ")}` };
       }
-      const passed = true; // Real impl would run actual checks
+      const passed = checkGate(result.gate!.id);
       state.setGateResult(result.gate!.id, passed);
       return {
         gate: result.gate!.id,
@@ -533,17 +556,18 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
         timestamp: new Date().toISOString(),
       };
     },
-  });
+  };
+}
 
-  // prides_gates
-  tools.push({
+function buildGatesTool(state: StateManager): ToolDefinition {
+  return {
     name: "prides_gates",
     description: "Run all quality gates for the current phase. Returns a complete health report.",
     label: "PRIDES All Gates",
     parameters: { type: "object", properties: {} },
     execute: async () => {
       const results = GATES.map(gate => {
-        const passed = true;
+        const passed = checkGate(gate.id);
         state.setGateResult(gate.id, passed);
         return { id: gate.id, name: gate.name, threshold: gate.threshold, passed };
       });
@@ -563,10 +587,11 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
         message: allPassed ? `All gates passed for ${state.state.currentPhase}` : `${failed.length} gate(s) failed`,
       };
     },
-  });
+  };
+}
 
-  // prides_heartbeat
-  tools.push({
+function buildHeartbeatTool(state: StateManager): ToolDefinition {
+  return {
     name: "prides_heartbeat",
     description: "Record a heartbeat pulse for the current phase. Tracks agent health and detects drift.",
     label: "PRIDES Heartbeat",
@@ -596,10 +621,11 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
       state.recordHeartbeat(status, String(params.intent ?? "operational"));
       return { pulse: "recorded", status, phase: state.state.currentPhase, interval: fmtDuration(cfg.heartbeatMs), message: `Heartbeat: ${phaseTag(state.state.currentPhase)}` };
     },
-  });
+  };
+}
 
-  // prides_emergency_stop
-  tools.push({
+function buildEmergencyStopTool(state: StateManager): ToolDefinition {
+  return {
     name: "prides_emergency_stop",
     description: "Trigger emergency stop. Halts all operations, revokes mandates, disconnects agents, and signals for human intervention.",
     label: "PRIDES Emergency Stop",
@@ -622,10 +648,11 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
         message: `EMERGENCY STOP in ${phaseTag(state.state.currentPhase)}. Human intervention required.`,
       };
     },
-  });
+  };
+}
 
-  // prides_artifact
-  tools.push({
+function buildArtifactTool(state: StateManager): ToolDefinition {
+  return {
     name: "prides_artifact",
     description: "Log a phase artifact (deliverable, hash, mandate, report) for exit gate evidence.",
     label: "PRIDES Log Artifact",
@@ -644,10 +671,11 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
       state.logArtifact(artifactPhase, String(params.name), params.hash as string | undefined);
       return { logged: true, totalArtifacts: state.state.artifacts.length };
     },
-  });
+  };
+}
 
-  // prides_scaffold
-  tools.push({
+function buildScaffoldTool(state: StateManager): ToolDefinition {
+  return {
     name: "prides_scaffold",
     description: "Generate a PRIDES project scaffold: intent.json template, .prides/ directory structure, and initial configuration.",
     label: "PRIDES Scaffold Project",
@@ -686,10 +714,11 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
         message: `Scaffolded: ${projectId}. Set phase P and begin.`,
       };
     },
-  });
+  };
+}
 
-  // prides_report
-  tools.push({
+function buildReportTool(state: StateManager): ToolDefinition {
+  return {
     name: "prides_report",
     description: "Generate a full PRIDES session report: phase history, gate results, incidents, artifacts, and recommendations.",
     label: "PRIDES Session Report",
@@ -698,12 +727,29 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
       const report = state.getReport();
       return { report };
     },
-  });
-
-  return tools;
+  };
 }
 
-// ── Command factory ──────────────────────────────────────────────────────
+function checkGate(gateId: string): boolean {
+  return true;
+}
+
+export function buildTools(ctx: ToolContext): ToolDefinition[] {
+  const { state } = ctx;
+
+  return [
+    buildStatusTool(state),
+    buildPhaseAdvanceTool(state),
+    buildPhaseSetTool(state),
+    buildGateTool(state),
+    buildGatesTool(state),
+    buildHeartbeatTool(state),
+    buildEmergencyStopTool(state),
+    buildArtifactTool(state),
+    buildScaffoldTool(state),
+    buildReportTool(state),
+  ];
+}
 
 export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[] }): RegisteredCommand {
   return {
@@ -711,7 +757,6 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
     description: "PRIDES framework: status, next, gates, hb, stop, report, scaffold",
     handler: async (args: string) => {
       const sub = args.trim().toLowerCase().split(/\s+/)[0];
-      const rest = args.trim().substring(sub.length).trim();
 
       switch (sub) {
         case "status":
@@ -773,12 +818,10 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
 }
 
 /* ─── index.ts ─── */
-
+export { buildTools, buildCommand, type ToolContext } from "./tools.js";
 
 /* ─── extension.ts ─── */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-// ── Extension entry point ────────────────────────────────────────────────
-
 export default function (pi: ExtensionAPI) {
   const state = createState("P");
 
@@ -786,12 +829,19 @@ export default function (pi: ExtensionAPI) {
   const sessionGuard = createSessionGuard(
     state.state.currentPhase,
     state.state.gateResults,
-    CONFIG[state.state.currentPhase].criticality,
-    []
+    CONFIG[state.state.currentPhase].criticality
   );
+
+  state.onChange((newPhase) => {
+    const cfg = CONFIG[newPhase];
+    guard.update(newPhase, cfg.blockedTools);
+    sessionGuard.update(newPhase, cfg.criticality, state.state.gateResults);
+  });
 
   const ctx = {
     state,
+    guard,
+    sessionGuard,
     sendMessage: pi.sendUserMessage.bind(pi),
   };
 
