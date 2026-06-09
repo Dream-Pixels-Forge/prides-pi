@@ -4,6 +4,9 @@
   "description": "PRIDES methodology extension for PI coding agent — quality-gated SDLC with phase progression, heartbeat monitoring, and emergency stop",
   "main": "prides.ts",
   "types": "prides.ts",
+  "pi": {
+    "extensions": ["prides.ts"]
+  },
   "scripts": {
     "test": "pi -e prides.ts --help"
   },
