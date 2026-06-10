@@ -395,12 +395,9 @@ export function createSessionGuard(
 
 /* ─── tools.ts ─── */
 import type { ExtensionAPI, ToolDefinition, RegisteredCommand } from "@earendil-works/pi-coding-agent";
-type ToolParams = Record<string, unknown>;
-
+// Minimal context for building tools
 export interface ToolContext {
   state: StateManager;
-  guard: LiveToolGuard;
-  sessionGuard: LiveSessionGuard;
   sendMessage: ExtensionAPI["sendUserMessage"];
 }
 
@@ -505,7 +502,6 @@ function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
         phaseName: CONFIG[next].name,
         criticality: CONFIG[next].criticality,
         tag: phaseTag(next),
-        nextPhase: next === "S" ? "P (new cycle)" : nextPhase(next),
         message: `Advanced to ${phaseTag(next)}`,
       };
     },
@@ -847,8 +843,6 @@ export default function (pi: ExtensionAPI) {
 
   const ctx = {
     state,
-    guard,
-    sessionGuard,
     sendMessage: pi.sendUserMessage.bind(pi),
   };
 

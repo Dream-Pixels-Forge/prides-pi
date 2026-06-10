@@ -2,14 +2,10 @@ import type { ExtensionAPI, ToolDefinition, RegisteredCommand } from "@earendil-
 import { PHASES, type Phase, CONFIG, getPhaseConfig } from "./config.js";
 import { type StateManager, HEARTBEAT_THRESHOLDS } from "./state.js";
 import { GATES, validateGate } from "./gates.js";
-import { type LiveToolGuard, type LiveSessionGuard } from "./guards.js";
 
-type ToolParams = Record<string, unknown>;
-
+// Minimal context for building tools
 export interface ToolContext {
   state: StateManager;
-  guard: LiveToolGuard;
-  sessionGuard: LiveSessionGuard;
   sendMessage: ExtensionAPI["sendUserMessage"];
 }
 
@@ -114,7 +110,6 @@ function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
         phaseName: CONFIG[next].name,
         criticality: CONFIG[next].criticality,
         tag: phaseTag(next),
-        nextPhase: next === "S" ? "P (new cycle)" : nextPhase(next),
         message: `Advanced to ${phaseTag(next)}`,
       };
     },

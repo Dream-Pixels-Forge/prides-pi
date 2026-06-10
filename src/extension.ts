@@ -19,8 +19,6 @@ export default function (pi: ExtensionAPI) {
 
   const ctx = {
     state,
-    guard,
-    sessionGuard,
     sendMessage: pi.sendUserMessage.bind(pi),
   };
 
