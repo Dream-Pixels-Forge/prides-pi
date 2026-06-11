@@ -104,6 +104,43 @@ pi -e prides.ts
 | `prides_scaffold` | Generate project scaffold |
 | `prides_report` | Session report with recommendations |
 
+## Commands vs Skills
+
+PRIDES has two types of invocations: **commands** (manual) and **skills** (automatic).
+
+### Commands (Manual)
+
+Commands are invoked by the user or agent via `/prides <subcommand>`. Use these for explicit actions:
+
+| Command | Description |
+|---------|-------------|
+| `/prides status` | Current phase, heartbeat, gates |
+| `/prides next` | Advance to next phase |
+| `/prides gates` | Run all quality gates |
+| `/prides hb` | Record heartbeat pulse |
+| `/prides stop` | Emergency stop |
+| `/prides report` | Full session report |
+| `/prides scaffold` | Generate PRIDES project structure |
+| `/prides task add <desc>` | Add a task to current phase |
+| `/prides task done <id>` | Mark task as completed |
+| `/prides task` | List tasks with progress |
+
+### Skills (Automatic)
+
+Skills are guard functions that run automatically on events. They enforce PRIDES rules without manual invocation:
+
+| Skill | Trigger | Behavior |
+|-------|---------|----------|
+| **Tool Guard** | Before write/edit operations | Blocks file modifications in Review, Deploy, and Secure phases |
+| **Session Guard** | Before session switches | Prevents switching when gates fail in critical phases |
+| **Gate Evaluator** | On `prides_gate` / `prides_gates` | Evaluates quality gates using artifact/incident context |
+
+### When to Use Each
+
+- **Use commands** when you want explicit control: checking status, advancing phases, logging artifacts
+- **Skills run automatically** — you don't invoke them. They enforce rules in the background.
+- If a skill blocks an operation, fix the underlying issue (e.g., pass gates) rather than bypassing the guard
+
 ## Phase Config
 
 | Phase | Name | Heartbeat | Criticality |

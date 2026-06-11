@@ -667,7 +667,7 @@ function fmtDuration(ms: number): string {
 function buildStatusTool(state: StateManager): ToolDefinition {
   return {
     name: "prides_status",
-    description: "Get current PRIDES phase, heartbeat health, gate status, and session summary. Call at session start.",
+    description: "Get current PRIDES phase, heartbeat health, gate status, and session summary. Call at session start and after every phase transition.",
     label: "PRIDES Status",
     parameters: { type: "object", properties: {} },
     execute: async () => {
@@ -705,7 +705,7 @@ function buildStatusTool(state: StateManager): ToolDefinition {
 function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
   return {
     name: "prides_phase_advance",
-    description: "Advance to the next PRIDES phase. Validates exit criteria for current phase before allowing transition.",
+    description: "Advance to the next PRIDES phase. Requires all exit criteria to be met unless force=true. Use force only with human approval.",
     label: "PRIDES Advance Phase",
     parameters: {
       type: "object",
@@ -755,7 +755,7 @@ function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
 function buildPhaseSetTool(state: StateManager): ToolDefinition {
   return {
     name: "prides_phase_set",
-    description: "Set the current PRIDES phase explicitly (for initialization or correction).",
+    description: "Set the current PRIDES phase explicitly. Use for session initialization or correcting phase after errors.",
     label: "PRIDES Set Phase",
     parameters: {
       type: "object",
@@ -778,7 +778,7 @@ function buildPhaseSetTool(state: StateManager): ToolDefinition {
 function buildGateTool(state: StateManager): ToolDefinition {
   return {
     name: "prides_gate",
-    description: "Run a quality gate check. Validates the codebase against PRIDES standards for the current phase.",
+    description: "Run a single quality gate check. Run after code changes to validate quality before phase advance.",
     label: "PRIDES Quality Gate",
     parameters: {
       type: "object",
@@ -810,7 +810,7 @@ function buildGateTool(state: StateManager): ToolDefinition {
 function buildGatesTool(state: StateManager): ToolDefinition {
   return {
     name: "prides_gates",
-    description: "Run all quality gates for the current phase. Returns a complete health report.",
+    description: "Run all quality gates for the current phase. Returns pass/fail for each gate with reasons. Required before phase advance.",
     label: "PRIDES All Gates",
     parameters: { type: "object", properties: {} },
     execute: async () => {
@@ -841,7 +841,7 @@ function buildGatesTool(state: StateManager): ToolDefinition {
 function buildHeartbeatTool(state: StateManager): ToolDefinition {
   return {
     name: "prides_heartbeat",
-    description: "Record a heartbeat pulse for the current phase. Tracks agent health and detects drift.",
+    description: "Record a heartbeat pulse. Call every heartbeatMs interval to track agent health. Reports drifting/stalled status as incidents.",
     label: "PRIDES Heartbeat",
     parameters: {
       type: "object",
@@ -879,7 +879,7 @@ function buildHeartbeatTool(state: StateManager): ToolDefinition {
 function buildEmergencyStopTool(state: StateManager): ToolDefinition {
   return {
     name: "prides_emergency_stop",
-    description: "Trigger emergency stop. Halts all operations, revokes mandates, disconnects agents, and signals for human intervention.",
+    description: "Trigger emergency stop. Use only when agent behavior is unsafe or unexpected. Halts operations and signals for human intervention.",
     label: "PRIDES Emergency Stop",
     parameters: {
       type: "object",
@@ -906,7 +906,7 @@ function buildEmergencyStopTool(state: StateManager): ToolDefinition {
 function buildArtifactTool(state: StateManager): ToolDefinition {
   return {
     name: "prides_artifact",
-    description: "Log a phase artifact (deliverable, hash, mandate, report) for exit gate evidence.",
+    description: "Log a phase artifact (deliverable, hash, report) for exit gate evidence. Required for gate validation.",
     label: "PRIDES Log Artifact",
     parameters: {
       type: "object",
@@ -933,7 +933,7 @@ function buildArtifactTool(state: StateManager): ToolDefinition {
 function buildScaffoldTool(state: StateManager): ToolDefinition {
   return {
     name: "prides_scaffold",
-    description: "Generate a PRIDES project scaffold: intent.json template, .prides/ directory structure, and initial configuration.",
+    description: "Generate a PRIDES project scaffold: intent.json template, .prides/ directory structure, and initial configuration. Run once at project start.",
     label: "PRIDES Scaffold Project",
     parameters: {
       type: "object",
@@ -976,7 +976,7 @@ function buildScaffoldTool(state: StateManager): ToolDefinition {
 function buildReportTool(state: StateManager): ToolDefinition {
   return {
     name: "prides_report",
-    description: "Generate a full PRIDES session report: phase history, gate results, incidents, artifacts, and recommendations.",
+    description: "Generate a full PRIDES session report: phase history, gate results, incidents, artifacts, and recommendations. Use for status checks and human review.",
     label: "PRIDES Session Report",
     parameters: { type: "object", properties: {} },
     execute: async () => {
