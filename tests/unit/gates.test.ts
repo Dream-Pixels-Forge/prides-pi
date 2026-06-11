@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert";
-import { GATES, validateGate } from "../../src/gates.js";
+import { GATES, validateGate, createDefaultGateEvaluator } from "../../src/gates.js";
+import type { GateContext } from "../../src/gates.js";
 
 // ── Unit tests for quality gates ─────────────────────────────────────────
 
@@ -62,5 +63,104 @@ describe("Quality Gates", () => {
     const result = validateGate("CODE-REVIEW");
     assert.strictEqual(result.valid, true);
     assert.strictEqual(result.gate.id, "code-review");
+  });
+});
+
+// ── Gate Evaluator tests ─────────────────────────────────────────────
+
+function makeContext(overrides: Partial<GateContext> = {}): GateContext {
+  return {
+    currentPhase: "I",
+    gateResults: {},
+    artifacts: [],
+    incidents: [],
+    ...overrides,
+  };
+}
+
+describe("Gate Evaluator", () => {
+  it("should create a default evaluator", () => {
+    const evaluator = createDefaultGateEvaluator();
+    assert.strictEqual(typeof evaluator, "function");
+  });
+
+  it("should pass code-review when artifact exists", () => {
+    const evaluator = createDefaultGateEvaluator();
+    const ctx = makeContext({ artifacts: [{ phase: "I", name: "code-review-done" }] });
+    const result = evaluator("code-review", ctx);
+    assert.strictEqual(result.passed, true);
+  });
+
+  it("should fail code-review when no artifact exists", () => {
+    const evaluator = createDefaultGateEvaluator();
+    const ctx = makeContext();
+    const result = evaluator("code-review", ctx);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.reason);
+  });
+
+  it("should pass test-coverage when artifact exists", () => {
+    const evaluator = createDefaultGateEvaluator();
+    const ctx = makeContext({ artifacts: [{ phase: "I", name: "test-coverage-report" }] });
+    const result = evaluator("test-coverage", ctx);
+    assert.strictEqual(result.passed, true);
+  });
+
+  it("should fail test-coverage when no artifact exists", () => {
+    const evaluator = createDefaultGateEvaluator();
+    const ctx = makeContext();
+    const result = evaluator("test-coverage", ctx);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.reason);
+  });
+
+  it("should pass security when no critical security incident", () => {
+    const evaluator = createDefaultGateEvaluator();
+    const ctx = makeContext({ incidents: [{ ts: 1, phase: "I", severity: "medium", detail: "minor issue" }] });
+    const result = evaluator("security", ctx);
+    assert.strictEqual(result.passed, true);
+  });
+
+  it("should fail security when critical security incident exists", () => {
+    const evaluator = createDefaultGateEvaluator();
+    const ctx = makeContext({ incidents: [{ ts: 1, phase: "I", severity: "critical", detail: "security vulnerability found" }] });
+    const result = evaluator("security", ctx);
+    assert.strictEqual(result.passed, false);
+    assert.ok(result.reason?.includes("security"));
+  });
+
+  it("should pass performance when artifact exists", () => {
+    const evaluator = createDefaultGateEvaluator();
+    const ctx = makeContext({ artifacts: [{ phase: "I", name: "performance-benchmark" }] });
+    const result = evaluator("performance", ctx);
+    assert.strictEqual(result.passed, true);
+  });
+
+  it("should fail performance when no artifact exists", () => {
+    const evaluator = createDefaultGateEvaluator();
+    const ctx = makeContext();
+    const result = evaluator("performance", ctx);
+    assert.strictEqual(result.passed, false);
+  });
+
+  it("should pass accessibility when artifact exists", () => {
+    const evaluator = createDefaultGateEvaluator();
+    const ctx = makeContext({ artifacts: [{ phase: "I", name: "accessibility-audit" }] });
+    const result = evaluator("accessibility", ctx);
+    assert.strictEqual(result.passed, true);
+  });
+
+  it("should fail accessibility when no artifact exists", () => {
+    const evaluator = createDefaultGateEvaluator();
+    const ctx = makeContext();
+    const result = evaluator("accessibility", ctx);
+    assert.strictEqual(result.passed, false);
+  });
+
+  it("should pass unknown gates by default", () => {
+    const evaluator = createDefaultGateEvaluator();
+    const ctx = makeContext();
+    const result = evaluator("unknown-gate", ctx);
+    assert.strictEqual(result.passed, true);
   });
 });

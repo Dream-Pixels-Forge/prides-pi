@@ -173,7 +173,7 @@ function buildGateTool(state: StateManager): ToolDefinition {
         return { error: `Unknown gate: ${params.gate}. Available: ${GATES.map(g => g.id).join(", ")}` };
       }
       const { gate } = result;
-      const passed = checkGate(gate.id);
+      const { passed } = state.evaluateGate(gate.id);
       state.setGateResult(gate.id, passed);
       return {
         gate: gate.id,
@@ -195,9 +195,9 @@ function buildGatesTool(state: StateManager): ToolDefinition {
     parameters: { type: "object", properties: {} },
     execute: async () => {
       const results = GATES.map(gate => {
-        const passed = checkGate(gate.id);
+        const { passed, reason } = state.evaluateGate(gate.id);
         state.setGateResult(gate.id, passed);
-        return { id: gate.id, name: gate.name, threshold: gate.threshold, passed };
+        return { id: gate.id, name: gate.name, threshold: gate.threshold, passed, reason };
       });
       const allPassed = results.every(r => r.passed);
       const failed = results.filter(r => !r.passed);
@@ -366,6 +366,58 @@ function buildReportTool(state: StateManager): ToolDefinition {
   };
 }
 
+function buildTaskAddTool(state: StateManager): ToolDefinition {
+  return {
+    name: "prides_task_add",
+    description: "Add a task to the current phase plan. Returns the task ID.",
+    label: "PRIDES Add Task",
+    parameters: {
+      type: "object",
+      properties: {
+        description: { type: "string", description: "Task description" },
+      },
+      required: ["description"],
+    },
+    execute: async (params: ToolParams) => {
+      const id = state.addTask(String(params.description));
+      return { id, message: `Task added: ${id}` };
+    },
+  };
+}
+
+function buildTaskCompleteTool(state: StateManager): ToolDefinition {
+  return {
+    name: "prides_task_complete",
+    description: "Mark a task as completed.",
+    label: "PRIDES Complete Task",
+    parameters: {
+      type: "object",
+      properties: {
+        taskId: { type: "string", description: "Task ID to complete" },
+      },
+      required: ["taskId"],
+    },
+    execute: async (params: ToolParams) => {
+      const ok = state.completeTask(String(params.taskId));
+      return { success: ok, message: ok ? `Task completed: ${params.taskId}` : `Task not found or already done` };
+    },
+  };
+}
+
+function buildTaskListTool(state: StateManager): ToolDefinition {
+  return {
+    name: "prides_tasks",
+    description: "List all tasks in the current phase plan with completion status.",
+    label: "PRIDES Task List",
+    parameters: { type: "object", properties: {} },
+    execute: async () => {
+      const plan = state.getTaskPlan();
+      const progress = state.getPhaseProgress();
+      return { plan, progress };
+    },
+  };
+}
+
 function checkGate(gateId: string): boolean {
   // Default: all gates pass. Override via a real gate evaluator.
   return true;
@@ -385,6 +437,9 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
     buildArtifactTool(state),
     buildScaffoldTool(state),
     buildReportTool(state),
+    buildTaskAddTool(state),
+    buildTaskCompleteTool(state),
+    buildTaskListTool(state),
   ];
 }
 
@@ -395,7 +450,7 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
 
   return {
     name: "prides",
-    description: "PRIDES framework: status, next, gates, hb, stop, report, scaffold",
+    description: "PRIDES framework: status, next, gates, hb, stop, report, scaffold, task",
     handler: async (args: string) => {
       try {
         const sub = args.trim().toLowerCase().split(/\s+/)[0];
@@ -451,8 +506,34 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
             const result = await tool.execute({});
             return `${result.message}\nDirectories: ${result.directories.join(", ")}`;
           }
+          case "task":
+          case "t": {
+            const subCmd = parts[1]?.toLowerCase();
+            if (subCmd === "add" && parts.length > 2) {
+              const desc = parts.slice(2).join(" ");
+              const tool = findTool("prides_task_add");
+              if (!tool) return "Error: prides_task_add tool not found";
+              const result = await tool.execute({ description: desc });
+              return result.message;
+            }
+            if (subCmd === "done" && parts[2]) {
+              const tool = findTool("prides_task_complete");
+              if (!tool) return "Error: prides_task_complete tool not found";
+              const result = await tool.execute({ taskId: parts[2] });
+              return result.message;
+            }
+            const tool = findTool("prides_tasks");
+            if (!tool) return "Error: prides_tasks tool not found";
+            const result = await tool.execute({});
+            const p = result.progress;
+            if (p.total === 0) return "No tasks in current phase.";
+            const lines = result.plan.tasks.map((t: { id: string; description: string; done: boolean }) =>
+              `${t.done ? "✓" : "○"} ${t.description} (${t.id})`
+            );
+            return `Tasks: ${p.completed}/${p.total} (${p.percentage}%)\n${lines.join("\n")}`;
+          }
           default: {
-            return "PRIDES commands: status, next, gates, hb, stop, report, scaffold";
+            return "PRIDES commands: status, next, gates, hb, stop, report, scaffold, task [add|done]";
           }
         }
       } catch (err) {

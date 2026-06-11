@@ -133,6 +133,21 @@ export interface Gate {
   threshold: string;
 }
 
+export interface GateContext {
+  currentPhase: string;
+  gateResults: Record<string, boolean>;
+  artifacts: { phase: string; name: string; hash?: string }[];
+  incidents: { ts: number; phase: string; severity: string; detail: string }[];
+}
+
+export interface GateResult {
+  passed: boolean;
+  reason?: string;
+  details?: Record<string, unknown>;
+}
+
+export type GateEvaluator = (gateId: string, context: GateContext) => GateResult;
+
 export const GATES: Gate[] = [
   { id: "code-review", name: "Code Review", threshold: ">=2 approvals, 0 blocking comments" },
   { id: "test-coverage", name: "Test Coverage", threshold: ">80% line coverage" },
@@ -156,6 +171,50 @@ export function validateGate(gateId: string): GateValidationResult {
   return { valid: true, gate };
 }
 
+export function createDefaultGateEvaluator(): GateEvaluator {
+  return (gateId, context) => {
+    switch (gateId) {
+      case "code-review":
+        return {
+          passed: context.artifacts.some(a => a.name.includes("code-review")),
+          reason: context.artifacts.some(a => a.name.includes("code-review"))
+            ? undefined
+            : "No code-review artifact found",
+        };
+      case "test-coverage":
+        return {
+          passed: context.artifacts.some(a => a.name.includes("test-coverage")),
+          reason: context.artifacts.some(a => a.name.includes("test-coverage"))
+            ? undefined
+            : "No test-coverage artifact found",
+        };
+      case "security":
+        return {
+          passed: !context.incidents.some(i => i.severity === "critical" && i.detail.includes("security")),
+          reason: context.incidents.some(i => i.severity === "critical" && i.detail.includes("security"))
+            ? "Critical security incident found"
+            : undefined,
+        };
+      case "performance":
+        return {
+          passed: context.artifacts.some(a => a.name.includes("performance")),
+          reason: context.artifacts.some(a => a.name.includes("performance"))
+            ? undefined
+            : "No performance benchmark artifact found",
+        };
+      case "accessibility":
+        return {
+          passed: context.artifacts.some(a => a.name.includes("accessibility")),
+          reason: context.artifacts.some(a => a.name.includes("accessibility"))
+            ? undefined
+            : "No accessibility audit artifact found",
+        };
+      default:
+        return { passed: true };
+    }
+  };
+}
+
 /* ─── state.ts ─── */
 export type IncidentSeverity = "low" | "medium" | "high" | "critical";
 
@@ -169,6 +228,20 @@ export const HEARTBEAT_THRESHOLDS = {
   DEGRADED: 4,
 } as const;
 
+export interface TaskPlan {
+  phase: Phase;
+  tasks: { id: string; description: string; done: boolean; completedAt?: string }[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PRIDSEvent {
+  id: string;
+  type: "phase_changed" | "gate_result" | "heartbeat" | "incident" | "artifact" | "task_updated";
+  timestamp: string;
+  payload: Record<string, unknown>;
+}
+
 export interface PRIDESState {
   currentPhase: Phase;
   phaseIndex: number;
@@ -177,6 +250,8 @@ export interface PRIDESState {
   incidents: { ts: number; phase: Phase; severity: IncidentSeverity; detail: string }[];
   artifacts: { phase: Phase; name: string; hash?: string }[];
   startedAt: string;
+  taskPlan: TaskPlan | null;
+  events: PRIDSEvent[];
 }
 
 export interface Report {
@@ -198,6 +273,15 @@ export interface StateManager {
   logIncident: (severity: IncidentSeverity, detail: string) => void;
   logArtifact: (phase: Phase, name: string, hash?: string) => void;
   setGateResult: (gateId: string, passed: boolean) => boolean;
+  evaluateGate: (gateId: string) => { passed: boolean; reason?: string };
+  setGateEvaluator: (evaluator: GateEvaluator) => void;
+  getTaskPlan: () => TaskPlan | null;
+  setTaskPlan: (plan: TaskPlan) => void;
+  addTask: (description: string) => string;
+  completeTask: (taskId: string) => boolean;
+  getPhaseProgress: () => { total: number; completed: number; percentage: number };
+  appendEvent: (type: PRIDSEvent["type"], payload: Record<string, unknown>) => PRIDSEvent;
+  getEvents: (filter?: { type?: string; since?: string }) => PRIDSEvent[];
   toJSON: () => string;
   fromJSON: (json: string) => void;
   getReport: () => Report;
@@ -213,9 +297,13 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     incidents: [],
     artifacts: [],
     startedAt: new Date().toISOString(),
+    taskPlan: null,
+    events: [],
   };
 
+  let gateEvaluator: GateEvaluator = createDefaultGateEvaluator();
   const subscribers: Array<(phase: Phase, gateResults: Record<string, boolean>) => void> = [];
+  let eventCounter = 0;
 
   function notifySubscribers(phase: Phase): void {
     subscribers.forEach(callback => callback(phase, state.gateResults));
@@ -229,8 +317,10 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     if (!PHASES.includes(phase)) {
       throw new Error(`Invalid phase: ${phase}`);
     }
+    const prev = state.currentPhase;
     state.currentPhase = phase;
     state.phaseIndex = PHASES.indexOf(phase);
+    appendEvent("phase_changed", { from: prev, to: phase });
     notifySubscribers(phase, state.gateResults);
   }
 
@@ -275,7 +365,87 @@ export function createState(initialPhase: Phase = "P"): StateManager {
       return false;
     }
     state.gateResults[normalized] = passed;
+    appendEvent("gate_result", { gateId: normalized, passed });
     return true;
+  }
+
+  function evaluateGate(gateId: string): { passed: boolean; reason?: string } {
+    const context: GateContext = {
+      currentPhase: state.currentPhase,
+      gateResults: state.gateResults,
+      artifacts: state.artifacts,
+      incidents: state.incidents,
+    };
+    return gateEvaluator(gateId, context);
+  }
+
+  function setGateEvaluator(evaluator: GateEvaluator): void {
+    gateEvaluator = evaluator;
+  }
+
+  function getTaskPlan(): TaskPlan | null {
+    return state.taskPlan;
+  }
+
+  function setTaskPlan(plan: TaskPlan): void {
+    state.taskPlan = plan;
+    appendEvent("task_updated", { plan });
+  }
+
+  function addTask(description: string): string {
+    const id = `task-${Date.now()}-${++eventCounter}`;
+    const now = new Date().toISOString();
+    if (!state.taskPlan) {
+      state.taskPlan = { phase: state.currentPhase, tasks: [], createdAt: now, updatedAt: now };
+    }
+    state.taskPlan.tasks.push({ id, description, done: false });
+    state.taskPlan.updatedAt = now;
+    appendEvent("task_updated", { action: "add", taskId: id, description });
+    return id;
+  }
+
+  function completeTask(taskId: string): boolean {
+    if (!state.taskPlan) return false;
+    const task = state.taskPlan.tasks.find(t => t.id === taskId);
+    if (!task || task.done) return false;
+    task.done = true;
+    task.completedAt = new Date().toISOString();
+    state.taskPlan.updatedAt = new Date().toISOString();
+    appendEvent("task_updated", { action: "complete", taskId });
+    return true;
+  }
+
+  function getPhaseProgress(): { total: number; completed: number; percentage: number } {
+    if (!state.taskPlan || state.taskPlan.tasks.length === 0) {
+      return { total: 0, completed: 0, percentage: 0 };
+    }
+    const total = state.taskPlan.tasks.length;
+    const completed = state.taskPlan.tasks.filter(t => t.done).length;
+    return { total, completed, percentage: Math.round((completed / total) * 100) };
+  }
+
+  function appendEvent(type: PRIDSEvent["type"], payload: Record<string, unknown>): PRIDSEvent {
+    const event: PRIDSEvent = {
+      id: `evt-${Date.now()}-${++eventCounter}`,
+      type,
+      timestamp: new Date().toISOString(),
+      payload,
+    };
+    state.events.push(event);
+    if (state.events.length > MAX_HISTORY) state.events.shift();
+    return event;
+  }
+
+  function getEvents(filter?: { type?: string; since?: string }): PRIDSEvent[] {
+    let events = state.events;
+    if (filter?.type) {
+      events = events.filter(e => e.type === filter.type);
+    }
+    if (filter?.since) {
+      const sinceTime = new Date(filter.since).getTime();
+      events = events.filter(e => new Date(e.timestamp).getTime() >= sinceTime);
+    }
+    return events;
   }
 
   function toJSON(): string {
@@ -363,6 +533,15 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     logIncident,
     logArtifact,
     setGateResult,
+    evaluateGate,
+    setGateEvaluator,
+    getTaskPlan,
+    setTaskPlan,
+    addTask,
+    completeTask,
+    getPhaseProgress,
+    appendEvent,
+    getEvents,
     toJSON,
     fromJSON,
     getReport,
@@ -614,7 +793,7 @@ function buildGateTool(state: StateManager): ToolDefinition {
         return { error: `Unknown gate: ${params.gate}. Available: ${GATES.map(g => g.id).join(", ")}` };
       }
       const { gate } = result;
-      const passed = checkGate(gate.id);
+      const { passed } = state.evaluateGate(gate.id);
       state.setGateResult(gate.id, passed);
       return {
         gate: gate.id,
@@ -636,9 +815,9 @@ function buildGatesTool(state: StateManager): ToolDefinition {
     parameters: { type: "object", properties: {} },
     execute: async () => {
       const results = GATES.map(gate => {
-        const passed = checkGate(gate.id);
+        const { passed, reason } = state.evaluateGate(gate.id);
         state.setGateResult(gate.id, passed);
-        return { id: gate.id, name: gate.name, threshold: gate.threshold, passed };
+        return { id: gate.id, name: gate.name, threshold: gate.threshold, passed, reason };
       });
       const allPassed = results.every(r => r.passed);
       const failed = results.filter(r => !r.passed);
@@ -807,6 +986,58 @@ function buildReportTool(state: StateManager): ToolDefinition {
   };
 }
 
+function buildTaskAddTool(state: StateManager): ToolDefinition {
+  return {
+    name: "prides_task_add",
+    description: "Add a task to the current phase plan. Returns the task ID.",
+    label: "PRIDES Add Task",
+    parameters: {
+      type: "object",
+      properties: {
+        description: { type: "string", description: "Task description" },
+      },
+      required: ["description"],
+    },
+    execute: async (params: ToolParams) => {
+      const id = state.addTask(String(params.description));
+      return { id, message: `Task added: ${id}` };
+    },
+  };
+}
+
+function buildTaskCompleteTool(state: StateManager): ToolDefinition {
+  return {
+    name: "prides_task_complete",
+    description: "Mark a task as completed.",
+    label: "PRIDES Complete Task",
+    parameters: {
+      type: "object",
+      properties: {
+        taskId: { type: "string", description: "Task ID to complete" },
+      },
+      required: ["taskId"],
+    },
+    execute: async (params: ToolParams) => {
+      const ok = state.completeTask(String(params.taskId));
+      return { success: ok, message: ok ? `Task completed: ${params.taskId}` : `Task not found or already done` };
+    },
+  };
+}
+
+function buildTaskListTool(state: StateManager): ToolDefinition {
+  return {
+    name: "prides_tasks",
+    description: "List all tasks in the current phase plan with completion status.",
+    label: "PRIDES Task List",
+    parameters: { type: "object", properties: {} },
+    execute: async () => {
+      const plan = state.getTaskPlan();
+      const progress = state.getPhaseProgress();
+      return { plan, progress };
+    },
+  };
+}
+
 function checkGate(gateId: string): boolean {
   // Default: all gates pass. Override via a real gate evaluator.
   return true;
@@ -826,6 +1057,9 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
     buildArtifactTool(state),
     buildScaffoldTool(state),
     buildReportTool(state),
+    buildTaskAddTool(state),
+    buildTaskCompleteTool(state),
+    buildTaskListTool(state),
   ];
 }
 
@@ -836,7 +1070,7 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
 
   return {
     name: "prides",
-    description: "PRIDES framework: status, next, gates, hb, stop, report, scaffold",
+    description: "PRIDES framework: status, next, gates, hb, stop, report, scaffold, task",
     handler: async (args: string) => {
       try {
         const sub = args.trim().toLowerCase().split(/\s+/)[0];
@@ -892,8 +1126,34 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
             const result = await tool.execute({});
             return `${result.message}\nDirectories: ${result.directories.join(", ")}`;
           }
+          case "task":
+          case "t": {
+            const subCmd = parts[1]?.toLowerCase();
+            if (subCmd === "add" && parts.length > 2) {
+              const desc = parts.slice(2).join(" ");
+              const tool = findTool("prides_task_add");
+              if (!tool) return "Error: prides_task_add tool not found";
+              const result = await tool.execute({ description: desc });
+              return result.message;
+            }
+            if (subCmd === "done" && parts[2]) {
+              const tool = findTool("prides_task_complete");
+              if (!tool) return "Error: prides_task_complete tool not found";
+              const result = await tool.execute({ taskId: parts[2] });
+              return result.message;
+            }
+            const tool = findTool("prides_tasks");
+            if (!tool) return "Error: prides_tasks tool not found";
+            const result = await tool.execute({});
+            const p = result.progress;
+            if (p.total === 0) return "No tasks in current phase.";
+            const lines = result.plan.tasks.map((t: { id: string; description: string; done: boolean }) =>
+              `${t.done ? "✓" : "○"} ${t.description} (${t.id})`
+            );
+            return `Tasks: ${p.completed}/${p.total} (${p.percentage}%)\n${lines.join("\n")}`;
+          }
           default: {
-            return "PRIDES commands: status, next, gates, hb, stop, report, scaffold";
+            return "PRIDES commands: status, next, gates, hb, stop, report, scaffold, task [add|done]";
           }
         }
       } catch (err) {

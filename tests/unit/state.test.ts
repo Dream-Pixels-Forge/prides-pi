@@ -244,3 +244,162 @@ describe("advancePhase validation", () => {
     assert.strictEqual(state.state.currentPhase, "P");
   });
 });
+
+describe("Task Plan", () => {
+  it("should start with null task plan", () => {
+    const state = createState("P");
+    assert.strictEqual(state.getTaskPlan(), null);
+  });
+
+  it("should add a task", () => {
+    const state = createState("P");
+    const id = state.addTask("Implement feature X");
+    assert.ok(id.startsWith("task-"));
+    const plan = state.getTaskPlan();
+    assert.ok(plan);
+    assert.strictEqual(plan.tasks.length, 1);
+    assert.strictEqual(plan.tasks[0].description, "Implement feature X");
+    assert.strictEqual(plan.tasks[0].done, false);
+  });
+
+  it("should complete a task", () => {
+    const state = createState("P");
+    const id = state.addTask("Write tests");
+    const ok = state.completeTask(id);
+    assert.strictEqual(ok, true);
+    const plan = state.getTaskPlan();
+    assert.ok(plan);
+    assert.strictEqual(plan.tasks[0].done, true);
+    assert.ok(plan.tasks[0].completedAt);
+  });
+
+  it("should return false when completing unknown task", () => {
+    const state = createState("P");
+    const ok = state.completeTask("task-nonexistent");
+    assert.strictEqual(ok, false);
+  });
+
+  it("should return false when completing already completed task", () => {
+    const state = createState("P");
+    const id = state.addTask("Done task");
+    state.completeTask(id);
+    const ok = state.completeTask(id);
+    assert.strictEqual(ok, false);
+  });
+
+  it("should calculate phase progress", () => {
+    const state = createState("P");
+    state.addTask("Task 1");
+    const id2 = state.addTask("Task 2");
+    state.addTask("Task 3");
+    state.completeTask(id2);
+    const progress = state.getPhaseProgress();
+    assert.strictEqual(progress.total, 3);
+    assert.strictEqual(progress.completed, 1);
+    assert.strictEqual(progress.percentage, 33);
+  });
+
+  it("should return zero progress when no tasks", () => {
+    const state = createState("P");
+    const progress = state.getPhaseProgress();
+    assert.strictEqual(progress.total, 0);
+    assert.strictEqual(progress.completed, 0);
+    assert.strictEqual(progress.percentage, 0);
+  });
+
+  it("should set a custom task plan", () => {
+    const state = createState("P");
+    state.setTaskPlan({
+      phase: "I",
+      tasks: [
+        { id: "custom-1", description: "Custom task", done: false },
+      ],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+    const plan = state.getTaskPlan();
+    assert.ok(plan);
+    assert.strictEqual(plan.phase, "I");
+    assert.strictEqual(plan.tasks.length, 1);
+  });
+});
+
+describe("Event Sourcing", () => {
+  it("should start with empty events", () => {
+    const state = createState("P");
+    assert.deepStrictEqual(state.getEvents(), []);
+  });
+
+  it("should append events on gate result", () => {
+    const state = createState("P");
+    state.setGateResult("code-review", true);
+    const events = state.getEvents();
+    assert.strictEqual(events.length, 1);
+    assert.strictEqual(events[0].type, "gate_result");
+    assert.strictEqual(events[0].payload.gateId, "code-review");
+    assert.strictEqual(events[0].payload.passed, true);
+  });
+
+  it("should append events on task operations", () => {
+    const state = createState("P");
+    const id = state.addTask("Test event");
+    state.completeTask(id);
+    const events = state.getEvents();
+    assert.strictEqual(events.length, 2);
+    assert.strictEqual(events[0].type, "task_updated");
+    assert.strictEqual(events[0].payload.action, "add");
+    assert.strictEqual(events[1].payload.action, "complete");
+  });
+
+  it("should filter events by type", () => {
+    const state = createState("P");
+    state.setGateResult("code-review", true);
+    state.addTask("Filter test");
+    const gateEvents = state.getEvents({ type: "gate_result" });
+    assert.strictEqual(gateEvents.length, 1);
+    const taskEvents = state.getEvents({ type: "task_updated" });
+    assert.strictEqual(taskEvents.length, 1);
+  });
+
+  it("should filter events by since timestamp", () => {
+    const state = createState("P");
+    state.setGateResult("code-review", true);
+    // All events should be returned when since is the beginning
+    const all = state.getEvents({ since: "2000-01-01T00:00:00.000Z" });
+    assert.ok(all.length >= 1);
+    // No events should be returned when since is far future
+    const none = state.getEvents({ since: "2099-01-01T00:00:00.000Z" });
+    assert.strictEqual(none.length, 0);
+  });
+});
+
+describe("Gate Evaluator Integration", () => {
+  it("should use default evaluator", () => {
+    const state = createState("P");
+    const result = state.evaluateGate("code-review");
+    assert.strictEqual(typeof result.passed, "boolean");
+  });
+
+  it("should use custom evaluator", () => {
+    const state = createState("P");
+    state.setGateEvaluator(() => ({ passed: true, reason: "custom" }));
+    const result = state.evaluateGate("code-review");
+    assert.strictEqual(result.passed, true);
+    assert.strictEqual(result.reason, "custom");
+  });
+
+  it("should evaluate gates with artifact context", () => {
+    const state = createState("P");
+    state.logArtifact("P", "code-review-done");
+    state.logArtifact("P", "plan.md");
+    const result = state.evaluateGate("code-review");
+    assert.strictEqual(result.passed, true);
+  });
+
+  it("should record events on advancePhase", () => {
+    const state = createState("P");
+    state.advancePhase();
+    const events = state.getEvents({ type: "phase_changed" });
+    assert.ok(events.length >= 1);
+  });
+});
