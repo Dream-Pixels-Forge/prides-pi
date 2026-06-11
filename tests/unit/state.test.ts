@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert";
 import { createState } from "../../src/state.js";
 import { HEARTBEAT_THRESHOLDS } from "../../src/state.js";
+import { validateGate } from "../../src/gates.js";
 
 describe("Heartbeat Thresholds", () => {
   it("should export heartbeat threshold constants", () => {
@@ -401,5 +402,90 @@ describe("Gate Evaluator Integration", () => {
     state.advancePhase();
     const events = state.getEvents({ type: "phase_changed" });
     assert.ok(events.length >= 1);
+  });
+});
+
+describe("MAX_HISTORY pruning", () => {
+  it("should prune heartbeats when exceeding MAX_HISTORY", () => {
+    const state = createState("P");
+    // Add 105 heartbeats (MAX_HISTORY is 100)
+    for (let i = 0; i < 105; i++) {
+      state.recordHeartbeat("healthy", `beat-${i}`);
+    }
+    assert.strictEqual(state.state.heartbeats.length, 100);
+    // Oldest should be pruned
+    assert.strictEqual(state.state.heartbeats[0].intent, "beat-5");
+  });
+
+  it("should prune incidents when exceeding MAX_HISTORY", () => {
+    const state = createState("P");
+    for (let i = 0; i < 105; i++) {
+      state.logIncident("low", `incident-${i}`);
+    }
+    assert.strictEqual(state.state.incidents.length, 100);
+    assert.strictEqual(state.state.incidents[0].detail, "incident-5");
+  });
+
+  it("should prune artifacts when exceeding MAX_HISTORY", () => {
+    const state = createState("P");
+    for (let i = 0; i < 105; i++) {
+      state.logArtifact("P", `artifact-${i}`);
+    }
+    assert.strictEqual(state.state.artifacts.length, 100);
+  });
+
+  it("should prune events when exceeding MAX_HISTORY", () => {
+    const state = createState("P");
+    for (let i = 0; i < 105; i++) {
+      state.addTask(`task-${i}`);
+    }
+    assert.ok(state.state.events.length <= 100);
+  });
+});
+
+describe("validateGate", () => {
+  it("should return valid for known gate IDs", () => {
+    const result = validateGate("code-review");
+    assert.strictEqual(result.valid, true);
+    assert.ok(result.gate);
+    assert.strictEqual(result.gate.id, "code-review");
+  });
+
+  it("should match partial names with 3+ chars", () => {
+    const result = validateGate("code");
+    assert.strictEqual(result.valid, true);
+  });
+
+  it("should return invalid for unknown gates", () => {
+    const result = validateGate("unknown-gate-xyz");
+    assert.strictEqual(result.valid, false);
+  });
+
+  it("should be case-insensitive", () => {
+    const result = validateGate("CODE-REVIEW");
+    assert.strictEqual(result.valid, true);
+  });
+});
+
+describe("setPhase validation edge cases", () => {
+  it("should throw on lowercase phase", () => {
+    const state = createState("P");
+    assert.throws(() => {
+      state.setPhase("p" as any);
+    }, /Invalid phase/);
+  });
+
+  it("should throw on empty string", () => {
+    const state = createState("P");
+    assert.throws(() => {
+      state.setPhase("" as any);
+    }, /Invalid phase/);
+  });
+
+  it("should throw on numeric string", () => {
+    const state = createState("P");
+    assert.throws(() => {
+      state.setPhase("1" as any);
+    }, /Invalid phase/);
   });
 });
