@@ -1,5 +1,10 @@
 export const PHASES = ["P", "R", "I", "D", "E", "S"] as const;
 export type Phase = (typeof PHASES)[number];
+export function nextPhase(p: Phase): Phase {
+  const idx = PHASES.indexOf(p);
+  return PHASES[(idx + 1) % PHASES.length];
+}
+
 
 export interface PhaseConfig {
   name: string;

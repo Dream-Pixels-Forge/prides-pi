@@ -1,4 +1,4 @@
-import { PHASES, type Phase, CONFIG } from "./config.js";
+import { PHASES, type Phase, CONFIG, nextPhase } from "./config.js";
 import { GATES } from "./gates.js";
 
 export const HEARTBEAT_THRESHOLDS = {
@@ -60,10 +60,6 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     return key.toLowerCase().replace(/\s+/g, "-");
   }
 
-  function nextPhase(): Phase {
-    const idx = PHASES.indexOf(state.currentPhase);
-    return PHASES[(idx + 1) % PHASES.length];
-  }
 
   function setPhase(phase: Phase): void {
     state.currentPhase = phase;
@@ -72,7 +68,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   }
 
   function advancePhase(): Phase {
-    const next = nextPhase();
+    const next = nextPhase(state.currentPhase);
     state.currentPhase = next;
     state.phaseIndex = PHASES.indexOf(next);
     state.artifacts.push({ phase: next, name: `phase-${next}-init` });

@@ -1,5 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { buildTools, buildCommand, createToolGuard, createSessionGuard, CONFIG, createState } from "./index.js";
+import { buildTools, buildCommand } from "./tools.js";
+import { createToolGuard, createSessionGuard } from "./guards.js";
+import { CONFIG } from "./config.js";
+import { createState } from "./state.js";
 
 export default function (pi: ExtensionAPI) {
   const state = createState("P");

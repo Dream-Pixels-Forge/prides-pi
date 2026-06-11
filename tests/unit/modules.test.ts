@@ -1,6 +1,9 @@
 import { describe, it, beforeEach } from "node:test";
 import assert from "node:assert";
-import { PHASES, getPhaseConfig, GATES, validateGate, createState, createToolGuard, createSessionGuard } from "../../src/index.js";
+import { PHASES, getPhaseConfig } from "../../src/config.js";
+import { GATES, validateGate } from "../../src/gates.js";
+import { createState } from "../../src/state.js";
+import { createToolGuard, createSessionGuard } from "../../src/guards.js";
 
 // ── Unit tests for PRIDES module exports ──────────────────────────────────
 

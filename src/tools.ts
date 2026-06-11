@@ -1,5 +1,5 @@
 import type { ExtensionAPI, ToolDefinition, RegisteredCommand } from "@earendil-works/pi-coding-agent";
-import { PHASES, type Phase, CONFIG, getPhaseConfig } from "./config.js";
+import { PHASES, type Phase, CONFIG, getPhaseConfig, nextPhase } from "./config.js";
 import { type StateManager, HEARTBEAT_THRESHOLDS } from "./state.js";
 import { GATES, validateGate } from "./gates.js";
 
@@ -23,10 +23,6 @@ function fmtDuration(ms: number): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-function nextPhase(p: Phase): Phase {
-  const idx = PHASES.indexOf(p);
-  return PHASES[(idx + 1) % PHASES.length];
-}
 
 function buildStatusTool(state: StateManager): ToolDefinition {
   return {

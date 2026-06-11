@@ -3,13 +3,10 @@ import { GATES } from "./gates.js";
 
 export interface ToolGuard {
   check: (toolName: string) => { blocked: boolean; reason?: string };
-}
-
-export interface LiveToolGuard extends ToolGuard {
   update: (phase: Phase, blockedTools: string[]) => void;
 }
 
-export function createToolGuard(initialPhase: Phase, initialBlockedTools: string[]): LiveToolGuard {
+export function createToolGuard(initialPhase: Phase, initialBlockedTools: string[]): ToolGuard {
   let phase = initialPhase;
   let blockedTools = initialBlockedTools;
 
@@ -33,9 +30,6 @@ export function createToolGuard(initialPhase: Phase, initialBlockedTools: string
 
 export interface SessionGuard {
   check: () => { blocked: boolean; reason?: string };
-}
-
-export interface LiveSessionGuard extends SessionGuard {
   update: (phase: Phase, criticality: string, gateResults: Record<string, boolean>) => void;
 }
 
@@ -43,7 +37,7 @@ export function createSessionGuard(
   initialPhase: Phase,
   initialGateResults: Record<string, boolean>,
   initialCriticality: string
-): LiveSessionGuard {
+): SessionGuard {
   let phase = initialPhase;
   let gateResults = initialGateResults;
   let criticality = initialCriticality;

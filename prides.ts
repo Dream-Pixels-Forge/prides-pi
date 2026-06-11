@@ -3,6 +3,11 @@
 /* ─── config.ts ─── */
 export const PHASES = ["P", "R", "I", "D", "E", "S"] as const;
 export type Phase = (typeof PHASES)[number];
+export function nextPhase(p: Phase): Phase {
+  const idx = PHASES.indexOf(p);
+  return PHASES[(idx + 1) % PHASES.length];
+}
+
 
 export interface PhaseConfig {
   name: string;
@@ -210,10 +215,6 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     return key.toLowerCase().replace(/\s+/g, "-");
   }
 
-  function nextPhase(): Phase {
-    const idx = PHASES.indexOf(state.currentPhase);
-    return PHASES[(idx + 1) % PHASES.length];
-  }
 
   function setPhase(phase: Phase): void {
     state.currentPhase = phase;
@@ -222,7 +223,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   }
 
   function advancePhase(): Phase {
-    const next = nextPhase();
+    const next = nextPhase(state.currentPhase);
     state.currentPhase = next;
     state.phaseIndex = PHASES.indexOf(next);
     state.artifacts.push({ phase: next, name: `phase-${next}-init` });
@@ -326,13 +327,10 @@ export function createState(initialPhase: Phase = "P"): StateManager {
 /* ─── guards.ts ─── */
 export interface ToolGuard {
   check: (toolName: string) => { blocked: boolean; reason?: string };
-}
-
-export interface LiveToolGuard extends ToolGuard {
   update: (phase: Phase, blockedTools: string[]) => void;
 }
 
-export function createToolGuard(initialPhase: Phase, initialBlockedTools: string[]): LiveToolGuard {
+export function createToolGuard(initialPhase: Phase, initialBlockedTools: string[]): ToolGuard {
   let phase = initialPhase;
   let blockedTools = initialBlockedTools;
 
@@ -356,9 +354,6 @@ export function createToolGuard(initialPhase: Phase, initialBlockedTools: string
 
 export interface SessionGuard {
   check: () => { blocked: boolean; reason?: string };
-}
-
-export interface LiveSessionGuard extends SessionGuard {
   update: (phase: Phase, criticality: string, gateResults: Record<string, boolean>) => void;
 }
 
@@ -366,7 +361,7 @@ export function createSessionGuard(
   initialPhase: Phase,
   initialGateResults: Record<string, boolean>,
   initialCriticality: string
-): LiveSessionGuard {
+): SessionGuard {
   let phase = initialPhase;
   let gateResults = initialGateResults;
   let criticality = initialCriticality;
@@ -415,10 +410,6 @@ function fmtDuration(ms: number): string {
   return `${Math.floor(m / 60)}h ${m % 60}m`;
 }
 
-function nextPhase(p: Phase): Phase {
-  const idx = PHASES.indexOf(p);
-  return PHASES[(idx + 1) % PHASES.length];
-}
 
 function buildStatusTool(state: StateManager): ToolDefinition {
   return {
