@@ -1,4 +1,4 @@
-"""PRIDES PI Extension — bundled from src/*.ts"""
+// PRIDES PI Extension — bundled from src/*.ts
 
 /* ─── config.ts ─── */
 export const PHASES = ["P", "R", "I", "D", "E", "S"] as const;
@@ -819,9 +819,6 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
     },
   };
 }
-
-/* ─── index.ts ─── */
-export { buildTools, buildCommand, type ToolContext } from "./tools.js";
 
 /* ─── extension.ts ─── */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
