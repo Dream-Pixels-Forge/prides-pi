@@ -14,7 +14,7 @@ export default function (pi: ExtensionAPI) {
     CONFIG[state.state.currentPhase].criticality
   );
 
-  state.onChange((newPhase, gateResults) => {
+  const unsubscribe = state.onChange((newPhase, gateResults) => {
     const cfg = CONFIG[newPhase];
     guard.update(newPhase, cfg.blockedTools);
     sessionGuard.update(newPhase, cfg.criticality, gateResults);
@@ -51,6 +51,8 @@ export default function (pi: ExtensionAPI) {
   pi.events.on("session_start", () => {
     try {
       pi.sendUserMessage(`PRIDES v1.1.0 ready — Phase ${state.state.currentPhase}`, { deliverAs: "nextTurn" });
-    } catch {}
+    } catch (err) {
+      console.error("PRIDES: failed to send session start message", err);
+    }
   });
 }

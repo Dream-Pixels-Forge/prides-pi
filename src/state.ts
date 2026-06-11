@@ -1,6 +1,12 @@
 import { PHASES, type Phase, CONFIG, nextPhase } from "./config.js";
 import { GATES } from "./gates.js";
 
+export type IncidentSeverity = "low" | "medium" | "high" | "critical";
+
+export const INCIDENT_THRESHOLD = 3;
+
+const MAX_HISTORY = 100;
+
 export const HEARTBEAT_THRESHOLDS = {
   HEALTHY: 2,
   DEGRADED: 4,
@@ -11,7 +17,7 @@ export interface PRIDESState {
   phaseIndex: number;
   gateResults: Record<string, boolean>;
   heartbeats: { ts: number; phase: Phase; status: string; intent?: string }[];
-  incidents: { ts: number; phase: Phase; severity: string; detail: string }[];
+  incidents: { ts: number; phase: Phase; severity: IncidentSeverity; detail: string }[];
   artifacts: { phase: Phase; name: string; hash?: string }[];
   startedAt: string;
 }
@@ -21,7 +27,7 @@ export interface StateManager {
   setPhase: (phase: Phase) => void;
   advancePhase: () => Phase;
   recordHeartbeat: (status: "healthy" | "drifting" | "stalled", intent?: string) => void;
-  logIncident: (severity: string, detail: string) => void;
+  logIncident: (severity: IncidentSeverity, detail: string) => void;
   logArtifact: (phase: Phase, name: string, hash?: string) => void;
   setGateResult: (gateId: string, passed: boolean) => void;
   toJSON: () => string;
@@ -36,7 +42,7 @@ export interface StateManager {
     recentIncidents: { ts: number; phase: Phase; severity: string; detail: string }[];
     recommendations: string[];
   };
-  onChange: (callback: (phase: Phase, gateResults: Record<string, boolean>) => void) => void;
+  onChange: (callback: (phase: Phase, gateResults: Record<string, boolean>) => void) => (() => void);
 }
 
 export function createState(initialPhase: Phase = "P"): StateManager {
@@ -71,6 +77,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     const next = nextPhase(state.currentPhase);
     state.currentPhase = next;
     state.phaseIndex = PHASES.indexOf(next);
+    state.gateResults = {};
     state.artifacts.push({ phase: next, name: `phase-${next}-init` });
     notifySubscribers(next);
     return next;
@@ -83,19 +90,22 @@ export function createState(initialPhase: Phase = "P"): StateManager {
       status,
       intent,
     });
+    if (state.heartbeats.length > MAX_HISTORY) state.heartbeats.shift();
   }
 
-  function logIncident(severity: string, detail: string): void {
+  function logIncident(severity: IncidentSeverity, detail: string): void {
     state.incidents.push({
       ts: Date.now(),
       phase: state.currentPhase,
       severity,
       detail,
     });
+    if (state.incidents.length > MAX_HISTORY) state.incidents.shift();
   }
 
   function logArtifact(phase: Phase, name: string, hash?: string): void {
     state.artifacts.push({ phase, name, hash });
+    if (state.artifacts.length > MAX_HISTORY) state.artifacts.shift();
   }
 
   function setGateResult(gateId: string, passed: boolean): void {
@@ -113,14 +123,17 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   }
 
   function fromJSON(json: string): void {
-    const parsed = JSON.parse(json) as PRIDESState;
-    state.currentPhase = parsed.currentPhase;
-    state.phaseIndex = parsed.phaseIndex;
-    state.gateResults = parsed.gateResults;
-    state.heartbeats = parsed.heartbeats;
-    state.incidents = parsed.incidents;
-    state.artifacts = parsed.artifacts;
-    state.startedAt = parsed.startedAt;
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    if (typeof parsed.currentPhase !== "string" || !PHASES.includes(parsed.currentPhase as Phase)) {
+      throw new Error(`Invalid phase in JSON: ${String(parsed.currentPhase)}`);
+    }
+    state.currentPhase = parsed.currentPhase as Phase;
+    state.phaseIndex = PHASES.indexOf(parsed.currentPhase as Phase);
+    state.gateResults = (parsed.gateResults as Record<string, boolean>) ?? {};
+    state.heartbeats = (parsed.heartbeats as PRIDESState["heartbeats"]) ?? [];
+    state.incidents = (parsed.incidents as PRIDESState["incidents"]) ?? [];
+    state.artifacts = (parsed.artifacts as PRIDESState["artifacts"]) ?? [];
+    state.startedAt = (parsed.startedAt as string) ?? new Date().toISOString();
   }
 
   function getReport() {
@@ -136,7 +149,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     if (failingGates.length > 0) {
       recommendations.push(`Address failing gates: ${failingGates.map(g => g.id).join(", ")}`);
     }
-    if (state.incidents.length > 3) {
+    if (state.incidents.length > INCIDENT_THRESHOLD) {
       recommendations.push(`Review ${state.incidents.length} incidents — consider adjusting workflow`);
     }
 
@@ -163,8 +176,12 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     toJSON,
     fromJSON,
     getReport,
-    onChange: (callback: (phase: Phase) => void) => {
+    onChange: (callback: (phase: Phase, gateResults: Record<string, boolean>) => void): (() => void) => {
       subscribers.push(callback);
+      return () => {
+        const idx = subscribers.indexOf(callback);
+        if (idx >= 0) subscribers.splice(idx, 1);
+      };
     },
   };
 }

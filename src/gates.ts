@@ -20,7 +20,7 @@ export interface GateValidationResult {
 export function validateGate(gateId: string): GateValidationResult {
   const normalized = gateId.toLowerCase().trim();
   const gate = GATES.find(
-    g => g.id === normalized || g.name.toLowerCase().includes(normalized)
+    g => g.id === normalized || (normalized.length >= 3 && g.name.toLowerCase().includes(normalized))
   );
   if (!gate) {
     return { valid: false };

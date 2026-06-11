@@ -133,3 +133,56 @@ describe("State Manager", () => {
     assert.strictEqual(state.getReport().phaseName, "Secure");
   });
 });
+
+describe("fromJSON validation", () => {
+  it("should reject invalid phase in JSON", () => {
+    const state = createState();
+    assert.throws(() => {
+      state.fromJSON(JSON.stringify({ currentPhase: "X", phaseIndex: 0 }));
+    }, /Invalid phase/);
+  });
+
+  it("should reject missing currentPhase", () => {
+    const state = createState();
+    assert.throws(() => {
+      state.fromJSON(JSON.stringify({ phaseIndex: 0 }));
+    }, /Invalid phase/);
+  });
+
+  it("should reject non-string currentPhase", () => {
+    const state = createState();
+    assert.throws(() => {
+      state.fromJSON(JSON.stringify({ currentPhase: 42 }));
+    }, /Invalid phase/);
+  });
+
+  it("should accept valid phase JSON", () => {
+    const state = createState();
+    state.fromJSON(JSON.stringify({ currentPhase: "D", phaseIndex: 3, gateResults: {}, heartbeats: [], incidents: [], artifacts: [], startedAt: "2026-01-01T00:00:00.000Z" }));
+    assert.strictEqual(state.state.currentPhase, "D");
+  });
+});
+
+describe("advancePhase resets gate results", () => {
+  it("should clear gateResults on phase advance", () => {
+    const state = createState("P");
+    state.setGateResult("code-review", true);
+    state.setGateResult("security", true);
+    assert.strictEqual(state.state.gateResults["code-review"], true);
+    state.advancePhase();
+    assert.deepStrictEqual(state.state.gateResults, {});
+  });
+});
+
+describe("onChange returns unsubscribe", () => {
+  it("should stop notifying after unsubscribe", () => {
+    const state = createState("P");
+    let calls = 0;
+    const unsub = state.onChange(() => { calls++; });
+    state.setPhase("R");
+    assert.strictEqual(calls, 1);
+    unsub();
+    state.setPhase("I");
+    assert.strictEqual(calls, 1);
+  });
+});

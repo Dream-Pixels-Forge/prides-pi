@@ -147,7 +147,7 @@ export interface GateValidationResult {
 export function validateGate(gateId: string): GateValidationResult {
   const normalized = gateId.toLowerCase().trim();
   const gate = GATES.find(
-    g => g.id === normalized || g.name.toLowerCase().includes(normalized)
+    g => g.id === normalized || (normalized.length >= 3 && g.name.toLowerCase().includes(normalized))
   );
   if (!gate) {
     return { valid: false };
@@ -156,6 +156,12 @@ export function validateGate(gateId: string): GateValidationResult {
 }
 
 /* ─── state.ts ─── */
+export type IncidentSeverity = "low" | "medium" | "high" | "critical";
+
+export const INCIDENT_THRESHOLD = 3;
+
+const MAX_HISTORY = 100;
+
 export const HEARTBEAT_THRESHOLDS = {
   HEALTHY: 2,
   DEGRADED: 4,
@@ -166,7 +172,7 @@ export interface PRIDESState {
   phaseIndex: number;
   gateResults: Record<string, boolean>;
   heartbeats: { ts: number; phase: Phase; status: string; intent?: string }[];
-  incidents: { ts: number; phase: Phase; severity: string; detail: string }[];
+  incidents: { ts: number; phase: Phase; severity: IncidentSeverity; detail: string }[];
   artifacts: { phase: Phase; name: string; hash?: string }[];
   startedAt: string;
 }
@@ -176,7 +182,7 @@ export interface StateManager {
   setPhase: (phase: Phase) => void;
   advancePhase: () => Phase;
   recordHeartbeat: (status: "healthy" | "drifting" | "stalled", intent?: string) => void;
-  logIncident: (severity: string, detail: string) => void;
+  logIncident: (severity: IncidentSeverity, detail: string) => void;
   logArtifact: (phase: Phase, name: string, hash?: string) => void;
   setGateResult: (gateId: string, passed: boolean) => void;
   toJSON: () => string;
@@ -191,7 +197,7 @@ export interface StateManager {
     recentIncidents: { ts: number; phase: Phase; severity: string; detail: string }[];
     recommendations: string[];
   };
-  onChange: (callback: (phase: Phase, gateResults: Record<string, boolean>) => void) => void;
+  onChange: (callback: (phase: Phase, gateResults: Record<string, boolean>) => void) => (() => void);
 }
 
 export function createState(initialPhase: Phase = "P"): StateManager {
@@ -226,6 +232,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     const next = nextPhase(state.currentPhase);
     state.currentPhase = next;
     state.phaseIndex = PHASES.indexOf(next);
+    state.gateResults = {};
     state.artifacts.push({ phase: next, name: `phase-${next}-init` });
     notifySubscribers(next);
     return next;
@@ -238,19 +245,22 @@ export function createState(initialPhase: Phase = "P"): StateManager {
       status,
       intent,
     });
+    if (state.heartbeats.length > MAX_HISTORY) state.heartbeats.shift();
   }
 
-  function logIncident(severity: string, detail: string): void {
+  function logIncident(severity: IncidentSeverity, detail: string): void {
     state.incidents.push({
       ts: Date.now(),
       phase: state.currentPhase,
       severity,
       detail,
     });
+    if (state.incidents.length > MAX_HISTORY) state.incidents.shift();
   }
 
   function logArtifact(phase: Phase, name: string, hash?: string): void {
     state.artifacts.push({ phase, name, hash });
+    if (state.artifacts.length > MAX_HISTORY) state.artifacts.shift();
   }
 
   function setGateResult(gateId: string, passed: boolean): void {
@@ -268,14 +278,17 @@ export function createState(initialPhase: Phase = "P"): StateManager {
   }
 
   function fromJSON(json: string): void {
-    const parsed = JSON.parse(json) as PRIDESState;
-    state.currentPhase = parsed.currentPhase;
-    state.phaseIndex = parsed.phaseIndex;
-    state.gateResults = parsed.gateResults;
-    state.heartbeats = parsed.heartbeats;
-    state.incidents = parsed.incidents;
-    state.artifacts = parsed.artifacts;
-    state.startedAt = parsed.startedAt;
+    const parsed = JSON.parse(json) as Record<string, unknown>;
+    if (typeof parsed.currentPhase !== "string" || !PHASES.includes(parsed.currentPhase as Phase)) {
+      throw new Error(`Invalid phase in JSON: ${String(parsed.currentPhase)}`);
+    }
+    state.currentPhase = parsed.currentPhase as Phase;
+    state.phaseIndex = PHASES.indexOf(parsed.currentPhase as Phase);
+    state.gateResults = (parsed.gateResults as Record<string, boolean>) ?? {};
+    state.heartbeats = (parsed.heartbeats as PRIDESState["heartbeats"]) ?? [];
+    state.incidents = (parsed.incidents as PRIDESState["incidents"]) ?? [];
+    state.artifacts = (parsed.artifacts as PRIDESState["artifacts"]) ?? [];
+    state.startedAt = (parsed.startedAt as string) ?? new Date().toISOString();
   }
 
   function getReport() {
@@ -291,7 +304,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     if (failingGates.length > 0) {
       recommendations.push(`Address failing gates: ${failingGates.map(g => g.id).join(", ")}`);
     }
-    if (state.incidents.length > 3) {
+    if (state.incidents.length > INCIDENT_THRESHOLD) {
       recommendations.push(`Review ${state.incidents.length} incidents — consider adjusting workflow`);
     }
 
@@ -318,8 +331,12 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     toJSON,
     fromJSON,
     getReport,
-    onChange: (callback: (phase: Phase) => void) => {
+    onChange: (callback: (phase: Phase, gateResults: Record<string, boolean>) => void): (() => void) => {
       subscribers.push(callback);
+      return () => {
+        const idx = subscribers.indexOf(callback);
+        if (idx >= 0) subscribers.splice(idx, 1);
+      };
     },
   };
 }
@@ -725,6 +742,7 @@ function buildReportTool(state: StateManager): ToolDefinition {
 }
 
 function checkGate(gateId: string): boolean {
+  // Default: all gates pass. Override via a real gate evaluator.
   return true;
 }
 
@@ -750,62 +768,66 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
     name: "prides",
     description: "PRIDES framework: status, next, gates, hb, stop, report, scaffold",
     handler: async (args: string) => {
-      const sub = args.trim().toLowerCase().split(/\s+/)[0];
+      try {
+        const sub = args.trim().toLowerCase().split(/\s+/)[0];
 
-      switch (sub) {
-        case "status":
-        case "s": {
-          const tool = ctx.tools.find(t => t.name === "prides_status");
-          if (!tool) return "Error: prides_status tool not found";
-          const result = await tool.execute({});
-          return `Phase: ${result.phase} (${result.phaseName}) | Heartbeat: ${result.heartbeat.status} | Gates: ${result.gatesPassed}/${result.gatesTotal}`;
-        }
-        case "next": {
-          const tool = ctx.tools.find(t => t.name === "prides_phase_advance");
-          if (!tool) return "Error: prides_phase_advance tool not found";
-          const result = await tool.execute({ force: false });
-          if (result.blocked) {
-            return `Blocked: ${result.message}`;
+        switch (sub) {
+          case "status":
+          case "s": {
+            const tool = ctx.tools.find(t => t.name === "prides_status");
+            if (!tool) return "Error: prides_status tool not found";
+            const result = await tool.execute({});
+            return `Phase: ${result.phase} (${result.phaseName}) | Heartbeat: ${result.heartbeat.status} | Gates: ${result.gatesPassed}/${result.gatesTotal}`;
           }
-          return `${result.message} (next: ${result.nextPhase})`;
+          case "next": {
+            const tool = ctx.tools.find(t => t.name === "prides_phase_advance");
+            if (!tool) return "Error: prides_phase_advance tool not found";
+            const result = await tool.execute({ force: false });
+            if (result.blocked) {
+              return `Blocked: ${result.message}`;
+            }
+            return `${result.message} (next: ${result.nextPhase})`;
+          }
+          case "gates":
+          case "g": {
+            const tool = ctx.tools.find(t => t.name === "prides_gates");
+            if (!tool) return "Error: prides_gates tool not found";
+            const result = await tool.execute({});
+            return result.message;
+          }
+          case "hb":
+          case "heartbeat": {
+            const tool = ctx.tools.find(t => t.name === "prides_heartbeat");
+            if (!tool) return "Error: prides_heartbeat tool not found";
+            const result = await tool.execute({ status: "healthy" });
+            return result.message;
+          }
+          case "stop": {
+            const tool = ctx.tools.find(t => t.name === "prides_emergency_stop");
+            if (!tool) return "Error: prides_emergency_stop tool not found";
+            const result = await tool.execute({ reason: "Manual emergency stop via /prides stop" });
+            return result.message;
+          }
+          case "report":
+          case "r": {
+            const tool = ctx.tools.find(t => t.name === "prides_report");
+            if (!tool) return "Error: prides_report tool not found";
+            const result = await tool.execute({});
+            const r = result.report;
+            return `Phase: ${r.currentPhase} | Artifacts: ${r.totalArtifacts} | Incidents: ${r.totalIncidents}\nRecommendations: ${r.recommendations.join("; ") || "None"}`;
+          }
+          case "scaffold": {
+            const tool = ctx.tools.find(t => t.name === "prides_scaffold");
+            if (!tool) return "Error: prides_scaffold tool not found";
+            const result = await tool.execute({});
+            return `${result.message}\nDirectories: ${result.directories.join(", ")}`;
+          }
+          default: {
+            return "PRIDES commands: status, next, gates, hb, stop, report, scaffold";
+          }
         }
-        case "gates":
-        case "g": {
-          const tool = ctx.tools.find(t => t.name === "prides_gates");
-          if (!tool) return "Error: prides_gates tool not found";
-          const result = await tool.execute({});
-          return result.message;
-        }
-        case "hb":
-        case "heartbeat": {
-          const tool = ctx.tools.find(t => t.name === "prides_heartbeat");
-          if (!tool) return "Error: prides_heartbeat tool not found";
-          const result = await tool.execute({ status: "healthy" });
-          return result.message;
-        }
-        case "stop": {
-          const tool = ctx.tools.find(t => t.name === "prides_emergency_stop");
-          if (!tool) return "Error: prides_emergency_stop tool not found";
-          const result = await tool.execute({ reason: "Manual emergency stop via /prides stop" });
-          return result.message;
-        }
-        case "report":
-        case "r": {
-          const tool = ctx.tools.find(t => t.name === "prides_report");
-          if (!tool) return "Error: prides_report tool not found";
-          const result = await tool.execute({});
-          const r = result.report;
-          return `Phase: ${r.currentPhase} | Artifacts: ${r.totalArtifacts} | Incidents: ${r.totalIncidents}\nRecommendations: ${r.recommendations.join("; ") || "None"}`;
-        }
-        case "scaffold": {
-          const tool = ctx.tools.find(t => t.name === "prides_scaffold");
-          if (!tool) return "Error: prides_scaffold tool not found";
-          const result = await tool.execute({});
-          return `${result.message}\nDirectories: ${result.directories.join(", ")}`;
-        }
-        default: {
-          return "PRIDES commands: status, next, gates, hb, stop, report, scaffold";
-        }
+      } catch (err) {
+        return `Error: ${err instanceof Error ? err.message : String(err)}`;
       }
     },
   };
@@ -823,7 +845,7 @@ export default function (pi: ExtensionAPI) {
     CONFIG[state.state.currentPhase].criticality
   );
 
-  state.onChange((newPhase, gateResults) => {
+  const unsubscribe = state.onChange((newPhase, gateResults) => {
     const cfg = CONFIG[newPhase];
     guard.update(newPhase, cfg.blockedTools);
     sessionGuard.update(newPhase, cfg.criticality, gateResults);
@@ -860,7 +882,9 @@ export default function (pi: ExtensionAPI) {
   pi.events.on("session_start", () => {
     try {
       pi.sendUserMessage(`PRIDES v1.1.0 ready — Phase ${state.state.currentPhase}`, { deliverAs: "nextTurn" });
-    } catch {}
+    } catch (err) {
+      console.error("PRIDES: failed to send session start message", err);
+    }
   });
 }
 
