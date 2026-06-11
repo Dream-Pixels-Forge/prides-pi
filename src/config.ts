@@ -5,7 +5,6 @@ export function nextPhase(p: Phase): Phase {
   return PHASES[(idx + 1) % PHASES.length];
 }
 
-
 export interface PhaseConfig {
   name: string;
   heartbeatMs: number;

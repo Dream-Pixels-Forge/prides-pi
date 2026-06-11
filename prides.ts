@@ -8,7 +8,6 @@ export function nextPhase(p: Phase): Phase {
   return PHASES[(idx + 1) % PHASES.length];
 }
 
-
 export interface PhaseConfig {
   name: string;
   heartbeatMs: number;
@@ -161,6 +160,7 @@ export type IncidentSeverity = "low" | "medium" | "high" | "critical";
 export const INCIDENT_THRESHOLD = 3;
 
 const MAX_HISTORY = 100;
+const RECENT_INCIDENTS = 5;
 
 export const HEARTBEAT_THRESHOLDS = {
   HEALTHY: 2,
@@ -171,10 +171,21 @@ export interface PRIDESState {
   currentPhase: Phase;
   phaseIndex: number;
   gateResults: Record<string, boolean>;
-  heartbeats: { ts: number; phase: Phase; status: string; intent?: string }[];
+  heartbeats: { ts: number; phase: Phase; status: "healthy" | "drifting" | "stalled"; intent?: string }[];
   incidents: { ts: number; phase: Phase; severity: IncidentSeverity; detail: string }[];
   artifacts: { phase: Phase; name: string; hash?: string }[];
   startedAt: string;
+}
+
+export interface Report {
+  currentPhase: Phase;
+  phaseName: string;
+  sessionStarted: string;
+  totalArtifacts: number;
+  totalIncidents: number;
+  gates: { id: string; name: string; passed: boolean; threshold: string }[];
+  recentIncidents: { ts: number; phase: Phase; severity: IncidentSeverity; detail: string }[];
+  recommendations: string[];
 }
 
 export interface StateManager {
@@ -184,19 +195,10 @@ export interface StateManager {
   recordHeartbeat: (status: "healthy" | "drifting" | "stalled", intent?: string) => void;
   logIncident: (severity: IncidentSeverity, detail: string) => void;
   logArtifact: (phase: Phase, name: string, hash?: string) => void;
-  setGateResult: (gateId: string, passed: boolean) => void;
+  setGateResult: (gateId: string, passed: boolean) => boolean;
   toJSON: () => string;
   fromJSON: (json: string) => void;
-  getReport: () => {
-    currentPhase: Phase;
-    phaseName: string;
-    sessionStarted: string;
-    totalArtifacts: number;
-    totalIncidents: number;
-    gates: { id: string; name: string; passed: boolean; threshold: string }[];
-    recentIncidents: { ts: number; phase: Phase; severity: string; detail: string }[];
-    recommendations: string[];
-  };
+  getReport: () => Report;
   onChange: (callback: (phase: Phase, gateResults: Record<string, boolean>) => void) => (() => void);
 }
 
@@ -211,7 +213,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     startedAt: new Date().toISOString(),
   };
 
-  const subscribers: Array<(phase: Phase) => void> = [];
+  const subscribers: Array<(phase: Phase, gateResults: Record<string, boolean>) => void> = [];
 
   function notifySubscribers(phase: Phase): void {
     subscribers.forEach(callback => callback(phase, state.gateResults));
@@ -221,11 +223,13 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     return key.toLowerCase().replace(/\s+/g, "-");
   }
 
-
   function setPhase(phase: Phase): void {
+    if (!PHASES.includes(phase)) {
+      throw new Error(`Invalid phase: ${phase}`);
+    }
     state.currentPhase = phase;
     state.phaseIndex = PHASES.indexOf(phase);
-    notifySubscribers(phase);
+    notifySubscribers(phase, state.gateResults);
   }
 
   function advancePhase(): Phase {
@@ -234,7 +238,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     state.phaseIndex = PHASES.indexOf(next);
     state.gateResults = {};
     state.artifacts.push({ phase: next, name: `phase-${next}-init` });
-    notifySubscribers(next);
+    notifySubscribers(next, state.gateResults);
     return next;
   }
 
@@ -263,14 +267,15 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     if (state.artifacts.length > MAX_HISTORY) state.artifacts.shift();
   }
 
-  function setGateResult(gateId: string, passed: boolean): void {
+  function setGateResult(gateId: string, passed: boolean): boolean {
     const normalized = normalizeGateKey(gateId);
     const valid = GATES.some(g => g.id === normalized);
     if (!valid) {
       console.warn(`Unknown gate ID: ${gateId}`);
-      return;
+      return false;
     }
     state.gateResults[normalized] = passed;
+    return true;
   }
 
   function toJSON(): string {
@@ -315,7 +320,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
       totalArtifacts: state.artifacts.length,
       totalIncidents: state.incidents.length,
       gates,
-      recentIncidents: state.incidents.slice(-5),
+      recentIncidents: state.incidents.slice(-RECENT_INCIDENTS),
       recommendations,
     };
   }
@@ -406,13 +411,23 @@ export function createSessionGuard(
 }
 
 /* ─── tools.ts ─── */
-import type { ExtensionAPI, ToolDefinition, RegisteredCommand } from "@earendil-works/pi-coding-agent";
-// Minimal context for building tools
+import type { ToolDefinition, RegisteredCommand } from "@earendil-works/pi-coding-agent";
+export const TOOL_NAMES = {
+  STATUS: "prides_status",
+  PHASE_ADVANCE: "prides_phase_advance",
+  PHASE_SET: "prides_phase_set",
+  GATE: "prides_gate",
+  GATES: "prides_gates",
+  HEARTBEAT: "prides_heartbeat",
+  EMERGENCY_STOP: "prides_emergency_stop",
+  ARTIFACT: "prides_artifact",
+  SCAFFOLD: "prides_scaffold",
+  REPORT: "prides_report",
+} as const;
+
 export interface ToolContext {
   state: StateManager;
-  sendMessage: ExtensionAPI["sendUserMessage"];
 }
-
 function phaseTag(phase: Phase): string {
   const c = CONFIG[phase];
   const icon = c.criticality === "critical" ? "🔴" : c.criticality === "high" ? "🟠" : c.criticality === "medium" ? "🟡" : "🟢";
@@ -851,17 +866,12 @@ export default function (pi: ExtensionAPI) {
     sessionGuard.update(newPhase, cfg.criticality, gateResults);
   });
 
-  const ctx = {
-    state,
-    sendMessage: pi.sendUserMessage.bind(pi),
-  };
-
-  const tools = buildTools(ctx);
+  const tools = buildTools({ state });
   for (const tool of tools) {
     pi.registerTool(tool);
   }
 
-  const command = buildCommand({ state: ctx.state, tools });
+  const command = buildCommand({ state, tools });
   pi.registerCommand("prides", command);
 
   pi.events.on("tool_execution_start", (event) => {

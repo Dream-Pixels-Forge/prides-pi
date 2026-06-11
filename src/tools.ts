@@ -1,14 +1,24 @@
-import type { ExtensionAPI, ToolDefinition, RegisteredCommand } from "@earendil-works/pi-coding-agent";
+import type { ToolDefinition, RegisteredCommand } from "@earendil-works/pi-coding-agent";
 import { PHASES, type Phase, CONFIG, getPhaseConfig, nextPhase } from "./config.js";
 import { type StateManager, HEARTBEAT_THRESHOLDS } from "./state.js";
 import { GATES, validateGate } from "./gates.js";
 
-// Minimal context for building tools
+export const TOOL_NAMES = {
+  STATUS: "prides_status",
+  PHASE_ADVANCE: "prides_phase_advance",
+  PHASE_SET: "prides_phase_set",
+  GATE: "prides_gate",
+  GATES: "prides_gates",
+  HEARTBEAT: "prides_heartbeat",
+  EMERGENCY_STOP: "prides_emergency_stop",
+  ARTIFACT: "prides_artifact",
+  SCAFFOLD: "prides_scaffold",
+  REPORT: "prides_report",
+} as const;
+
 export interface ToolContext {
   state: StateManager;
-  sendMessage: ExtensionAPI["sendUserMessage"];
 }
-
 function phaseTag(phase: Phase): string {
   const c = CONFIG[phase];
   const icon = c.criticality === "critical" ? "🔴" : c.criticality === "high" ? "🟠" : c.criticality === "medium" ? "🟡" : "🟢";

@@ -20,17 +20,12 @@ export default function (pi: ExtensionAPI) {
     sessionGuard.update(newPhase, cfg.criticality, gateResults);
   });
 
-  const ctx = {
-    state,
-    sendMessage: pi.sendUserMessage.bind(pi),
-  };
-
-  const tools = buildTools(ctx);
+  const tools = buildTools({ state });
   for (const tool of tools) {
     pi.registerTool(tool);
   }
 
-  const command = buildCommand({ state: ctx.state, tools });
+  const command = buildCommand({ state, tools });
   pi.registerCommand("prides", command);
 
   pi.events.on("tool_execution_start", (event) => {
