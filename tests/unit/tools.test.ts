@@ -7,7 +7,6 @@ function createTestTools() {
   const state = createState("P");
   const ctx: Parameters<typeof buildTools>[0] = {
     state,
-    sendMessage: async () => {},
   };
   const tools = buildTools(ctx);
   const command = buildCommand({ state, tools });

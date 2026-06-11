@@ -1,4 +1,4 @@
-import { CONFIG, type Phase } from "./config.js";
+import { CONFIG, type Phase, type PhaseConfig } from "./config.js";
 import { GATES } from "./gates.js";
 
 export interface ToolGuard {
@@ -28,15 +28,17 @@ export function createToolGuard(initialPhase: Phase, initialBlockedTools: string
   };
 }
 
+type Criticality = PhaseConfig["criticality"];
+
 export interface SessionGuard {
   check: () => { blocked: boolean; reason?: string };
-  update: (phase: Phase, criticality: string, gateResults: Record<string, boolean>) => void;
+  update: (phase: Phase, criticality: Criticality, gateResults: Record<string, boolean>) => void;
 }
 
 export function createSessionGuard(
   initialPhase: Phase,
   initialGateResults: Record<string, boolean>,
-  initialCriticality: string
+  initialCriticality: Criticality
 ): SessionGuard {
   let phase = initialPhase;
   let gateResults = initialGateResults;
@@ -56,7 +58,7 @@ export function createSessionGuard(
       }
       return { blocked: false };
     },
-    update: (newPhase: Phase, newCriticality: string, newGateResults: Record<string, boolean>) => {
+    update: (newPhase: Phase, newCriticality: Criticality, newGateResults: Record<string, boolean>) => {
       phase = newPhase;
       criticality = newCriticality;
       gateResults = newGateResults;

@@ -186,3 +186,61 @@ describe("onChange returns unsubscribe", () => {
     assert.strictEqual(calls, 1);
   });
 });
+
+describe("onChange receives gateResults", () => {
+  it("should pass current gateResults to subscriber on setPhase", () => {
+    const state = createState("P");
+    state.setGateResult("code-review", true);
+    state.setGateResult("security", false);
+    let receivedGates: Record<string, boolean> | null = null;
+    state.onChange((_phase, gateResults) => { receivedGates = gateResults; });
+    state.setPhase("R");
+    assert.ok(receivedGates);
+    assert.strictEqual(receivedGates["code-review"], true);
+    assert.strictEqual(receivedGates["security"], false);
+  });
+
+  it("should pass updated gateResults after setGateResult then setPhase", () => {
+    const state = createState("P");
+    let receivedGates: Record<string, boolean> | null = null;
+    state.onChange((_phase, gateResults) => { receivedGates = gateResults; });
+    state.setGateResult("code-review", true);
+    state.setPhase("R");
+    assert.ok(receivedGates);
+    assert.strictEqual(receivedGates["code-review"], true);
+  });
+});
+
+describe("setGateResult returns boolean", () => {
+  it("should return true for valid gate ID", () => {
+    const state = createState("P");
+    const result = state.setGateResult("code-review", true);
+    assert.strictEqual(result, true);
+  });
+
+  it("should return false for unknown gate ID", () => {
+    const state = createState("P");
+    const result = state.setGateResult("unknown-gate", true);
+    assert.strictEqual(result, false);
+  });
+
+  it("should normalize gate keys before validation", () => {
+    const state = createState("P");
+    const result = state.setGateResult("Code Review", true);
+    assert.strictEqual(result, true);
+    assert.strictEqual(state.state.gateResults["code-review"], true);
+  });
+});
+
+describe("advancePhase validation", () => {
+  it("should advance through full phase cycle", () => {
+    const state = createState("P");
+    assert.strictEqual(state.advancePhase(), "R");
+    assert.strictEqual(state.advancePhase(), "I");
+    assert.strictEqual(state.advancePhase(), "D");
+    assert.strictEqual(state.advancePhase(), "E");
+    assert.strictEqual(state.advancePhase(), "S");
+    assert.strictEqual(state.advancePhase(), "P");
+    assert.strictEqual(state.state.currentPhase, "P");
+  });
+});

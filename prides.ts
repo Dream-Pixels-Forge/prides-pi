@@ -4,6 +4,9 @@
 export const PHASES = ["P", "R", "I", "D", "E", "S"] as const;
 export type Phase = (typeof PHASES)[number];
 export function nextPhase(p: Phase): Phase {
+  if (!PHASES.includes(p)) {
+    throw new Error(`Invalid phase: ${p}. Must be one of: ${PHASES.join(", ")}`);
+  }
   const idx = PHASES.indexOf(p);
   return PHASES[(idx + 1) % PHASES.length];
 }
@@ -138,10 +141,9 @@ export const GATES: Gate[] = [
   { id: "accessibility", name: "Accessibility", threshold: "WCAG 2.1 AA compliance" },
 ];
 
-export interface GateValidationResult {
-  valid: boolean;
-  gate?: Gate;
-}
+export type GateValidationResult =
+  | { valid: true; gate: Gate }
+  | { valid: false; gate?: undefined };
 
 export function validateGate(gateId: string): GateValidationResult {
   const normalized = gateId.toLowerCase().trim();
@@ -234,11 +236,9 @@ export function createState(initialPhase: Phase = "P"): StateManager {
 
   function advancePhase(): Phase {
     const next = nextPhase(state.currentPhase);
-    state.currentPhase = next;
-    state.phaseIndex = PHASES.indexOf(next);
+    setPhase(next);
     state.gateResults = {};
     state.artifacts.push({ phase: next, name: `phase-${next}-init` });
-    notifySubscribers(next, state.gateResults);
     return next;
   }
 
@@ -282,6 +282,30 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     return JSON.stringify(state);
   }
 
+  function validateHeartbeat(val: unknown): val is PRIDESState["heartbeats"][number] {
+    if (typeof val !== "object" || val === null) return false;
+    const obj = val as Record<string, unknown>;
+    return typeof obj.ts === "number"
+      && typeof obj.phase === "string" && PHASES.includes(obj.phase as Phase)
+      && (obj.status === "healthy" || obj.status === "drifting" || obj.status === "stalled");
+  }
+
+  function validateIncident(val: unknown): val is PRIDESState["incidents"][number] {
+    if (typeof val !== "object" || val === null) return false;
+    const obj = val as Record<string, unknown>;
+    return typeof obj.ts === "number"
+      && typeof obj.phase === "string" && PHASES.includes(obj.phase as Phase)
+      && (obj.severity === "low" || obj.severity === "medium" || obj.severity === "high" || obj.severity === "critical")
+      && typeof obj.detail === "string";
+  }
+
+  function validateArtifact(val: unknown): val is PRIDESState["artifacts"][number] {
+    if (typeof val !== "object" || val === null) return false;
+    const obj = val as Record<string, unknown>;
+    return typeof obj.phase === "string" && PHASES.includes(obj.phase as Phase)
+      && typeof obj.name === "string";
+  }
+
   function fromJSON(json: string): void {
     const parsed = JSON.parse(json) as Record<string, unknown>;
     if (typeof parsed.currentPhase !== "string" || !PHASES.includes(parsed.currentPhase as Phase)) {
@@ -290,9 +314,15 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     state.currentPhase = parsed.currentPhase as Phase;
     state.phaseIndex = PHASES.indexOf(parsed.currentPhase as Phase);
     state.gateResults = (parsed.gateResults as Record<string, boolean>) ?? {};
-    state.heartbeats = (parsed.heartbeats as PRIDESState["heartbeats"]) ?? [];
-    state.incidents = (parsed.incidents as PRIDESState["incidents"]) ?? [];
-    state.artifacts = (parsed.artifacts as PRIDESState["artifacts"]) ?? [];
+    state.heartbeats = Array.isArray(parsed.heartbeats)
+      ? (parsed.heartbeats as unknown[]).filter(validateHeartbeat)
+      : [];
+    state.incidents = Array.isArray(parsed.incidents)
+      ? (parsed.incidents as unknown[]).filter(validateIncident)
+      : [];
+    state.artifacts = Array.isArray(parsed.artifacts)
+      ? (parsed.artifacts as unknown[]).filter(validateArtifact)
+      : [];
     state.startedAt = (parsed.startedAt as string) ?? new Date().toISOString();
   }
 
@@ -374,15 +404,17 @@ export function createToolGuard(initialPhase: Phase, initialBlockedTools: string
   };
 }
 
+type Criticality = PhaseConfig["criticality"];
+
 export interface SessionGuard {
   check: () => { blocked: boolean; reason?: string };
-  update: (phase: Phase, criticality: string, gateResults: Record<string, boolean>) => void;
+  update: (phase: Phase, criticality: Criticality, gateResults: Record<string, boolean>) => void;
 }
 
 export function createSessionGuard(
   initialPhase: Phase,
   initialGateResults: Record<string, boolean>,
-  initialCriticality: string
+  initialCriticality: Criticality
 ): SessionGuard {
   let phase = initialPhase;
   let gateResults = initialGateResults;
@@ -402,7 +434,7 @@ export function createSessionGuard(
       }
       return { blocked: false };
     },
-    update: (newPhase: Phase, newCriticality: string, newGateResults: Record<string, boolean>) => {
+    update: (newPhase: Phase, newCriticality: Criticality, newGateResults: Record<string, boolean>) => {
       phase = newPhase;
       criticality = newCriticality;
       gateResults = newGateResults;
@@ -428,9 +460,19 @@ export const TOOL_NAMES = {
 export interface ToolContext {
   state: StateManager;
 }
+
+type ToolParams = Record<string, unknown>;
+
+const CRITICALITY_ICONS: Record<string, string> = {
+  critical: "🔴",
+  high: "🟠",
+  medium: "🟡",
+  low: "🟢",
+};
+
 function phaseTag(phase: Phase): string {
   const c = CONFIG[phase];
-  const icon = c.criticality === "critical" ? "🔴" : c.criticality === "high" ? "🟠" : c.criticality === "medium" ? "🟡" : "🟢";
+  const icon = CRITICALITY_ICONS[c.criticality] ?? "⚪";
   return `${icon} ${phase} — ${c.name}`;
 }
 
@@ -571,12 +613,13 @@ function buildGateTool(state: StateManager): ToolDefinition {
       if (!result.valid) {
         return { error: `Unknown gate: ${params.gate}. Available: ${GATES.map(g => g.id).join(", ")}` };
       }
-      const passed = checkGate(result.gate!.id);
-      state.setGateResult(result.gate!.id, passed);
+      const { gate } = result;
+      const passed = checkGate(gate.id);
+      state.setGateResult(gate.id, passed);
       return {
-        gate: result.gate!.id,
-        name: result.gate!.name,
-        threshold: result.gate!.threshold,
+        gate: gate.id,
+        name: gate.name,
+        threshold: gate.threshold,
         passed,
         phase: state.state.currentPhase,
         timestamp: new Date().toISOString(),
@@ -629,7 +672,11 @@ function buildHeartbeatTool(state: StateManager): ToolDefinition {
       },
     },
     execute: async (params: ToolParams) => {
-      const status = String(params.status ?? "healthy") as "healthy" | "drifting" | "stalled";
+      const validStatuses = ["healthy", "drifting", "stalled"] as const;
+      const rawStatus = String(params.status ?? "healthy");
+      const status = validStatuses.includes(rawStatus as typeof validStatuses[number])
+        ? (rawStatus as typeof validStatuses[number])
+        : "healthy";
       const cfg = getPhaseConfig(state.state.currentPhase);
 
       if (status === "stalled" && cfg.criticality === "critical") {
@@ -692,9 +739,13 @@ function buildArtifactTool(state: StateManager): ToolDefinition {
       required: ["name"],
     },
     execute: async (params: ToolParams) => {
+      const artifactName = String(params.name ?? "");
+      if (!artifactName) {
+        return { error: "Artifact name cannot be empty" };
+      }
       const artifactPhase = String(params.phase ?? state.state.currentPhase) as Phase;
       if (!PHASES.includes(artifactPhase)) return { error: `Invalid phase: ${params.phase}` };
-      state.logArtifact(artifactPhase, String(params.name), params.hash as string | undefined);
+      state.logArtifact(artifactPhase, artifactName, params.hash as string | undefined);
       return { logged: true, totalArtifacts: state.state.artifacts.length };
     },
   };
@@ -779,6 +830,10 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
 }
 
 export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[] }): RegisteredCommand {
+  function findTool(name: string): ToolDefinition | undefined {
+    return ctx.tools.find(t => t.name === name);
+  }
+
   return {
     name: "prides",
     description: "PRIDES framework: status, next, gates, hb, stop, report, scaffold",
@@ -789,13 +844,13 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
         switch (sub) {
           case "status":
           case "s": {
-            const tool = ctx.tools.find(t => t.name === "prides_status");
+            const tool = findTool("prides_status");
             if (!tool) return "Error: prides_status tool not found";
             const result = await tool.execute({});
             return `Phase: ${result.phase} (${result.phaseName}) | Heartbeat: ${result.heartbeat.status} | Gates: ${result.gatesPassed}/${result.gatesTotal}`;
           }
           case "next": {
-            const tool = ctx.tools.find(t => t.name === "prides_phase_advance");
+            const tool = findTool("prides_phase_advance");
             if (!tool) return "Error: prides_phase_advance tool not found";
             const result = await tool.execute({ force: false });
             if (result.blocked) {
@@ -805,34 +860,34 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
           }
           case "gates":
           case "g": {
-            const tool = ctx.tools.find(t => t.name === "prides_gates");
+            const tool = findTool("prides_gates");
             if (!tool) return "Error: prides_gates tool not found";
             const result = await tool.execute({});
             return result.message;
           }
           case "hb":
           case "heartbeat": {
-            const tool = ctx.tools.find(t => t.name === "prides_heartbeat");
+            const tool = findTool("prides_heartbeat");
             if (!tool) return "Error: prides_heartbeat tool not found";
             const result = await tool.execute({ status: "healthy" });
             return result.message;
           }
           case "stop": {
-            const tool = ctx.tools.find(t => t.name === "prides_emergency_stop");
+            const tool = findTool("prides_emergency_stop");
             if (!tool) return "Error: prides_emergency_stop tool not found";
             const result = await tool.execute({ reason: "Manual emergency stop via /prides stop" });
             return result.message;
           }
           case "report":
           case "r": {
-            const tool = ctx.tools.find(t => t.name === "prides_report");
+            const tool = findTool("prides_report");
             if (!tool) return "Error: prides_report tool not found";
             const result = await tool.execute({});
             const r = result.report;
             return `Phase: ${r.currentPhase} | Artifacts: ${r.totalArtifacts} | Incidents: ${r.totalIncidents}\nRecommendations: ${r.recommendations.join("; ") || "None"}`;
           }
           case "scaffold": {
-            const tool = ctx.tools.find(t => t.name === "prides_scaffold");
+            const tool = findTool("prides_scaffold");
             if (!tool) return "Error: prides_scaffold tool not found";
             const result = await tool.execute({});
             return `${result.message}\nDirectories: ${result.directories.join(", ")}`;

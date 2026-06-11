@@ -12,10 +12,9 @@ export const GATES: Gate[] = [
   { id: "accessibility", name: "Accessibility", threshold: "WCAG 2.1 AA compliance" },
 ];
 
-export interface GateValidationResult {
-  valid: boolean;
-  gate?: Gate;
-}
+export type GateValidationResult =
+  | { valid: true; gate: Gate }
+  | { valid: false; gate?: undefined };
 
 export function validateGate(gateId: string): GateValidationResult {
   const normalized = gateId.toLowerCase().trim();

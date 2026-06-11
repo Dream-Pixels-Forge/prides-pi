@@ -1,6 +1,9 @@
 export const PHASES = ["P", "R", "I", "D", "E", "S"] as const;
 export type Phase = (typeof PHASES)[number];
 export function nextPhase(p: Phase): Phase {
+  if (!PHASES.includes(p)) {
+    throw new Error(`Invalid phase: ${p}. Must be one of: ${PHASES.join(", ")}`);
+  }
   const idx = PHASES.indexOf(p);
   return PHASES[(idx + 1) % PHASES.length];
 }

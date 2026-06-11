@@ -19,9 +19,19 @@ export const TOOL_NAMES = {
 export interface ToolContext {
   state: StateManager;
 }
+
+type ToolParams = Record<string, unknown>;
+
+const CRITICALITY_ICONS: Record<string, string> = {
+  critical: "🔴",
+  high: "🟠",
+  medium: "🟡",
+  low: "🟢",
+};
+
 function phaseTag(phase: Phase): string {
   const c = CONFIG[phase];
-  const icon = c.criticality === "critical" ? "🔴" : c.criticality === "high" ? "🟠" : c.criticality === "medium" ? "🟡" : "🟢";
+  const icon = CRITICALITY_ICONS[c.criticality] ?? "⚪";
   return `${icon} ${phase} — ${c.name}`;
 }
 
@@ -162,12 +172,13 @@ function buildGateTool(state: StateManager): ToolDefinition {
       if (!result.valid) {
         return { error: `Unknown gate: ${params.gate}. Available: ${GATES.map(g => g.id).join(", ")}` };
       }
-      const passed = checkGate(result.gate!.id);
-      state.setGateResult(result.gate!.id, passed);
+      const { gate } = result;
+      const passed = checkGate(gate.id);
+      state.setGateResult(gate.id, passed);
       return {
-        gate: result.gate!.id,
-        name: result.gate!.name,
-        threshold: result.gate!.threshold,
+        gate: gate.id,
+        name: gate.name,
+        threshold: gate.threshold,
         passed,
         phase: state.state.currentPhase,
         timestamp: new Date().toISOString(),
@@ -220,7 +231,11 @@ function buildHeartbeatTool(state: StateManager): ToolDefinition {
       },
     },
     execute: async (params: ToolParams) => {
-      const status = String(params.status ?? "healthy") as "healthy" | "drifting" | "stalled";
+      const validStatuses = ["healthy", "drifting", "stalled"] as const;
+      const rawStatus = String(params.status ?? "healthy");
+      const status = validStatuses.includes(rawStatus as typeof validStatuses[number])
+        ? (rawStatus as typeof validStatuses[number])
+        : "healthy";
       const cfg = getPhaseConfig(state.state.currentPhase);
 
       if (status === "stalled" && cfg.criticality === "critical") {
@@ -283,9 +298,13 @@ function buildArtifactTool(state: StateManager): ToolDefinition {
       required: ["name"],
     },
     execute: async (params: ToolParams) => {
+      const artifactName = String(params.name ?? "");
+      if (!artifactName) {
+        return { error: "Artifact name cannot be empty" };
+      }
       const artifactPhase = String(params.phase ?? state.state.currentPhase) as Phase;
       if (!PHASES.includes(artifactPhase)) return { error: `Invalid phase: ${params.phase}` };
-      state.logArtifact(artifactPhase, String(params.name), params.hash as string | undefined);
+      state.logArtifact(artifactPhase, artifactName, params.hash as string | undefined);
       return { logged: true, totalArtifacts: state.state.artifacts.length };
     },
   };
@@ -370,6 +389,10 @@ export function buildTools(ctx: ToolContext): ToolDefinition[] {
 }
 
 export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[] }): RegisteredCommand {
+  function findTool(name: string): ToolDefinition | undefined {
+    return ctx.tools.find(t => t.name === name);
+  }
+
   return {
     name: "prides",
     description: "PRIDES framework: status, next, gates, hb, stop, report, scaffold",
@@ -380,13 +403,13 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
         switch (sub) {
           case "status":
           case "s": {
-            const tool = ctx.tools.find(t => t.name === "prides_status");
+            const tool = findTool("prides_status");
             if (!tool) return "Error: prides_status tool not found";
             const result = await tool.execute({});
             return `Phase: ${result.phase} (${result.phaseName}) | Heartbeat: ${result.heartbeat.status} | Gates: ${result.gatesPassed}/${result.gatesTotal}`;
           }
           case "next": {
-            const tool = ctx.tools.find(t => t.name === "prides_phase_advance");
+            const tool = findTool("prides_phase_advance");
             if (!tool) return "Error: prides_phase_advance tool not found";
             const result = await tool.execute({ force: false });
             if (result.blocked) {
@@ -396,34 +419,34 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
           }
           case "gates":
           case "g": {
-            const tool = ctx.tools.find(t => t.name === "prides_gates");
+            const tool = findTool("prides_gates");
             if (!tool) return "Error: prides_gates tool not found";
             const result = await tool.execute({});
             return result.message;
           }
           case "hb":
           case "heartbeat": {
-            const tool = ctx.tools.find(t => t.name === "prides_heartbeat");
+            const tool = findTool("prides_heartbeat");
             if (!tool) return "Error: prides_heartbeat tool not found";
             const result = await tool.execute({ status: "healthy" });
             return result.message;
           }
           case "stop": {
-            const tool = ctx.tools.find(t => t.name === "prides_emergency_stop");
+            const tool = findTool("prides_emergency_stop");
             if (!tool) return "Error: prides_emergency_stop tool not found";
             const result = await tool.execute({ reason: "Manual emergency stop via /prides stop" });
             return result.message;
           }
           case "report":
           case "r": {
-            const tool = ctx.tools.find(t => t.name === "prides_report");
+            const tool = findTool("prides_report");
             if (!tool) return "Error: prides_report tool not found";
             const result = await tool.execute({});
             const r = result.report;
             return `Phase: ${r.currentPhase} | Artifacts: ${r.totalArtifacts} | Incidents: ${r.totalIncidents}\nRecommendations: ${r.recommendations.join("; ") || "None"}`;
           }
           case "scaffold": {
-            const tool = ctx.tools.find(t => t.name === "prides_scaffold");
+            const tool = findTool("prides_scaffold");
             if (!tool) return "Error: prides_scaffold tool not found";
             const result = await tool.execute({});
             return `${result.message}\nDirectories: ${result.directories.join(", ")}`;
