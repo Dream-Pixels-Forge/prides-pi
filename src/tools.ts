@@ -2,6 +2,8 @@ import type { ToolDefinition, RegisteredCommand } from "@earendil-works/pi-codin
 import { PHASES, type Phase, CONFIG, getPhaseConfig, nextPhase } from "./config.js";
 import { type StateManager, HEARTBEAT_THRESHOLDS } from "./state.js";
 import { GATES, validateGate } from "./gates.js";
+import { mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
 
 export const TOOL_NAMES = {
   STATUS: "prides_status",
@@ -46,7 +48,7 @@ function fmtDuration(ms: number): string {
 
 function buildStatusTool(state: StateManager): ToolDefinition {
   return {
-    name: "prides_status",
+    name: TOOL_NAMES.STATUS,
     description: "Get current PRIDES phase, heartbeat health, gate status, and session summary. Call at session start and after every phase transition.",
     label: "PRIDES Status",
     parameters: { type: "object", properties: {} },
@@ -84,7 +86,7 @@ function buildStatusTool(state: StateManager): ToolDefinition {
 
 function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
   return {
-    name: "prides_phase_advance",
+    name: TOOL_NAMES.PHASE_ADVANCE,
     description: "Advance to the next PRIDES phase. Requires all exit criteria to be met unless force=true. Use force only with human approval.",
     label: "PRIDES Advance Phase",
     parameters: {
@@ -134,7 +136,7 @@ function buildPhaseAdvanceTool(state: StateManager): ToolDefinition {
 
 function buildPhaseSetTool(state: StateManager): ToolDefinition {
   return {
-    name: "prides_phase_set",
+    name: TOOL_NAMES.PHASE_SET,
     description: "Set the current PRIDES phase explicitly. Use for session initialization or correcting phase after errors.",
     label: "PRIDES Set Phase",
     parameters: {
@@ -157,7 +159,7 @@ function buildPhaseSetTool(state: StateManager): ToolDefinition {
 
 function buildGateTool(state: StateManager): ToolDefinition {
   return {
-    name: "prides_gate",
+    name: TOOL_NAMES.GATE,
     description: "Run a single quality gate check. Run after code changes to validate quality before phase advance.",
     label: "PRIDES Quality Gate",
     parameters: {
@@ -189,7 +191,7 @@ function buildGateTool(state: StateManager): ToolDefinition {
 
 function buildGatesTool(state: StateManager): ToolDefinition {
   return {
-    name: "prides_gates",
+    name: TOOL_NAMES.GATES,
     description: "Run all quality gates for the current phase. Returns pass/fail for each gate with reasons. Required before phase advance.",
     label: "PRIDES All Gates",
     parameters: { type: "object", properties: {} },
@@ -220,7 +222,7 @@ function buildGatesTool(state: StateManager): ToolDefinition {
 
 function buildHeartbeatTool(state: StateManager): ToolDefinition {
   return {
-    name: "prides_heartbeat",
+    name: TOOL_NAMES.HEARTBEAT,
     description: "Record a heartbeat pulse. Call every heartbeatMs interval to track agent health. Reports drifting/stalled status as incidents.",
     label: "PRIDES Heartbeat",
     parameters: {
@@ -258,7 +260,7 @@ function buildHeartbeatTool(state: StateManager): ToolDefinition {
 
 function buildEmergencyStopTool(state: StateManager): ToolDefinition {
   return {
-    name: "prides_emergency_stop",
+    name: TOOL_NAMES.EMERGENCY_STOP,
     description: "Trigger emergency stop. Use only when agent behavior is unsafe or unexpected. Halts operations and signals for human intervention.",
     label: "PRIDES Emergency Stop",
     parameters: {
@@ -271,8 +273,10 @@ function buildEmergencyStopTool(state: StateManager): ToolDefinition {
       const reason = String(params.reason ?? "Manual emergency stop");
       state.logIncident("critical", `EMERGENCY STOP: ${reason}`);
       state.logArtifact(state.state.currentPhase, "emergency-stop");
+      state.setEmergencyStop(true);
       return {
         emergency_stop: true,
+        halted: true,
         reason,
         phase: state.state.currentPhase,
         timestamp: new Date().toISOString(),
@@ -285,7 +289,7 @@ function buildEmergencyStopTool(state: StateManager): ToolDefinition {
 
 function buildArtifactTool(state: StateManager): ToolDefinition {
   return {
-    name: "prides_artifact",
+    name: TOOL_NAMES.ARTIFACT,
     description: "Log a phase artifact (deliverable, hash, report) for exit gate evidence. Required for gate validation.",
     label: "PRIDES Log Artifact",
     parameters: {
@@ -312,7 +316,7 @@ function buildArtifactTool(state: StateManager): ToolDefinition {
 
 function buildScaffoldTool(state: StateManager): ToolDefinition {
   return {
-    name: "prides_scaffold",
+    name: TOOL_NAMES.SCAFFOLD,
     description: "Generate a PRIDES project scaffold: intent.json template, .prides/ directory structure, and initial configuration. Run once at project start.",
     label: "PRIDES Scaffold Project",
     parameters: {
@@ -321,13 +325,15 @@ function buildScaffoldTool(state: StateManager): ToolDefinition {
         projectId: { type: "string", description: "Project identifier" },
         objective: { type: "string", description: "Core objective" },
         governor: { type: "string", description: "Human governor identifier" },
+        projectDir: { type: "string", description: "Project directory path (default: current directory)" },
       },
     },
     execute: async (params: ToolParams) => {
-      const p = params as { projectId?: string; objective?: string; governor?: string };
+      const p = params as { projectId?: string; objective?: string; governor?: string; projectDir?: string };
       const projectId = p.projectId ?? "PRIDES-PROJECT";
       const objective = p.objective ?? "Build a production-ready system";
       const governor = p.governor ?? "human-operator";
+      const projectDir = p.projectDir ?? ".";
 
       const intentJson = {
         project_id: projectId,
@@ -342,12 +348,29 @@ function buildScaffoldTool(state: StateManager): ToolDefinition {
       };
 
       const dirs = [".prides", ".prides/heartbeat", ".prides/incidents", ".prides/P", ".prides/R", ".prides/I", ".prides/D", ".prides/E", ".prides/S"];
+      const createdDirs: string[] = [];
+
+      for (const dir of dirs) {
+        const fullPath = join(projectDir, dir);
+        if (!existsSync(fullPath)) {
+          mkdirSync(fullPath, { recursive: true });
+          createdDirs.push(dir);
+        }
+      }
+
+      const intentPath = join(projectDir, "intent.json");
+      if (!existsSync(intentPath)) {
+        writeFileSync(intentPath, JSON.stringify(intentJson, null, 2));
+      }
+
       state.logArtifact("P", "scaffold-init", projectId);
+      state.logArtifact("P", "intent.json", JSON.stringify(intentJson));
 
       return {
         intentJson,
         directories: dirs,
-        message: `Scaffolded: ${projectId}. Set phase P and begin.`,
+        created: createdDirs,
+        message: `Scaffolded: ${projectId}. Created ${createdDirs.length} directories. Set phase P and begin.`,
       };
     },
   };
@@ -355,7 +378,7 @@ function buildScaffoldTool(state: StateManager): ToolDefinition {
 
 function buildReportTool(state: StateManager): ToolDefinition {
   return {
-    name: "prides_report",
+    name: TOOL_NAMES.REPORT,
     description: "Generate a full PRIDES session report: phase history, gate results, incidents, artifacts, and recommendations. Use for status checks and human review.",
     label: "PRIDES Session Report",
     parameters: { type: "object", properties: {} },
@@ -418,11 +441,6 @@ function buildTaskListTool(state: StateManager): ToolDefinition {
   };
 }
 
-function checkGate(gateId: string): boolean {
-  // Default: all gates pass. Override via a real gate evaluator.
-  return true;
-}
-
 export function buildTools(ctx: ToolContext): ToolDefinition[] {
   const { state } = ctx;
 
@@ -448,24 +466,29 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
     return ctx.tools.find(t => t.name === name);
   }
 
+  function requireTool(name: string): ToolDefinition {
+    const tool = findTool(name);
+    if (!tool) throw new Error(`${name} tool not found`);
+    return tool;
+  }
+
   return {
     name: "prides",
     description: "PRIDES framework: status, next, gates, hb, stop, report, scaffold, task",
     handler: async (args: string) => {
       try {
-        const sub = args.trim().toLowerCase().split(/\s+/)[0];
+        const parts = args.trim().toLowerCase().split(/\s+/);
+        const sub = parts[0];
 
         switch (sub) {
           case "status":
           case "s": {
-            const tool = findTool("prides_status");
-            if (!tool) return "Error: prides_status tool not found";
+            const tool = requireTool(TOOL_NAMES.STATUS);
             const result = await tool.execute({});
             return `Phase: ${result.phase} (${result.phaseName}) | Heartbeat: ${result.heartbeat.status} | Gates: ${result.gatesPassed}/${result.gatesTotal}`;
           }
           case "next": {
-            const tool = findTool("prides_phase_advance");
-            if (!tool) return "Error: prides_phase_advance tool not found";
+            const tool = requireTool(TOOL_NAMES.PHASE_ADVANCE);
             const result = await tool.execute({ force: false });
             if (result.blocked) {
               return `Blocked: ${result.message}`;
@@ -474,35 +497,30 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
           }
           case "gates":
           case "g": {
-            const tool = findTool("prides_gates");
-            if (!tool) return "Error: prides_gates tool not found";
+            const tool = requireTool(TOOL_NAMES.GATES);
             const result = await tool.execute({});
             return result.message;
           }
           case "hb":
           case "heartbeat": {
-            const tool = findTool("prides_heartbeat");
-            if (!tool) return "Error: prides_heartbeat tool not found";
+            const tool = requireTool(TOOL_NAMES.HEARTBEAT);
             const result = await tool.execute({ status: "healthy" });
             return result.message;
           }
           case "stop": {
-            const tool = findTool("prides_emergency_stop");
-            if (!tool) return "Error: prides_emergency_stop tool not found";
+            const tool = requireTool(TOOL_NAMES.EMERGENCY_STOP);
             const result = await tool.execute({ reason: "Manual emergency stop via /prides stop" });
             return result.message;
           }
           case "report":
           case "r": {
-            const tool = findTool("prides_report");
-            if (!tool) return "Error: prides_report tool not found";
+            const tool = requireTool(TOOL_NAMES.REPORT);
             const result = await tool.execute({});
             const r = result.report;
             return `Phase: ${r.currentPhase} | Artifacts: ${r.totalArtifacts} | Incidents: ${r.totalIncidents}\nRecommendations: ${r.recommendations.join("; ") || "None"}`;
           }
           case "scaffold": {
-            const tool = findTool("prides_scaffold");
-            if (!tool) return "Error: prides_scaffold tool not found";
+            const tool = requireTool(TOOL_NAMES.SCAFFOLD);
             const result = await tool.execute({});
             return `${result.message}\nDirectories: ${result.directories.join(", ")}`;
           }
@@ -511,19 +529,16 @@ export function buildCommand(ctx: { state: StateManager; tools: ToolDefinition[]
             const subCmd = parts[1]?.toLowerCase();
             if (subCmd === "add" && parts.length > 2) {
               const desc = parts.slice(2).join(" ");
-              const tool = findTool("prides_task_add");
-              if (!tool) return "Error: prides_task_add tool not found";
+              const tool = requireTool("prides_task_add");
               const result = await tool.execute({ description: desc });
               return result.message;
             }
             if (subCmd === "done" && parts[2]) {
-              const tool = findTool("prides_task_complete");
-              if (!tool) return "Error: prides_task_complete tool not found";
+              const tool = requireTool("prides_task_complete");
               const result = await tool.execute({ taskId: parts[2] });
               return result.message;
             }
-            const tool = findTool("prides_tasks");
-            if (!tool) return "Error: prides_tasks tool not found";
+            const tool = requireTool("prides_tasks");
             const result = await tool.execute({});
             const p = result.progress;
             if (p.total === 0) return "No tasks in current phase.";

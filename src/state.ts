@@ -37,6 +37,7 @@ export interface PRIDESState {
   startedAt: string;
   taskPlan: TaskPlan | null;
   events: PRIDSEvent[];
+  emergencyStopped: boolean;
 }
 
 export interface Report {
@@ -67,6 +68,8 @@ export interface StateManager {
   getPhaseProgress: () => { total: number; completed: number; percentage: number };
   appendEvent: (type: PRIDSEvent["type"], payload: Record<string, unknown>) => PRIDSEvent;
   getEvents: (filter?: { type?: string; since?: string }) => PRIDSEvent[];
+  setEmergencyStop: (stopped: boolean) => void;
+  isEmergencyStopped: () => boolean;
   toJSON: () => string;
   fromJSON: (json: string) => void;
   getReport: () => Report;
@@ -84,6 +87,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     startedAt: new Date().toISOString(),
     taskPlan: null,
     events: [],
+    emergencyStopped: false,
   };
 
   let gateEvaluator: GateEvaluator = createDefaultGateEvaluator();
@@ -233,6 +237,17 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     return events;
   }
 
+  function setEmergencyStop(stopped: boolean): void {
+    state.emergencyStopped = stopped;
+    if (stopped) {
+      appendEvent("incident", { type: "emergency_stop", detail: "Emergency stop activated" });
+    }
+  }
+
+  function isEmergencyStopped(): boolean {
+    return state.emergencyStopped;
+  }
+
   function toJSON(): string {
     return JSON.stringify(state);
   }
@@ -279,6 +294,7 @@ export function createState(initialPhase: Phase = "P"): StateManager {
       ? (parsed.artifacts as unknown[]).filter(validateArtifact)
       : [];
     state.startedAt = (parsed.startedAt as string) ?? new Date().toISOString();
+    state.emergencyStopped = (parsed.emergencyStopped as boolean) ?? false;
   }
 
   function getReport() {
@@ -327,6 +343,8 @@ export function createState(initialPhase: Phase = "P"): StateManager {
     getPhaseProgress,
     appendEvent,
     getEvents,
+    setEmergencyStop,
+    isEmergencyStopped,
     toJSON,
     fromJSON,
     getReport,
