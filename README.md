@@ -2,6 +2,15 @@
 
 PRIDES methodology extension for [PI](https://github.com/earendil-works/pi) coding agent. Brings quality-gated SDLC to your AI coding sessions.
 
+## What's New in v1.2.0
+
+- **Gate Evaluator System**: Customizable quality gate evaluation with `GateEvaluator`, `GateContext`, and `GateResult` types
+- **Task Plan Tracking**: Add, complete, and track tasks per phase with progress metrics
+- **Event-Sourced State**: Full audit trail of all state changes with `PRIDSEvent` system
+- **Emergency Stop State**: Track emergency stop status with `setEmergencyStop`/`isEmergencyStopped`
+- **Improved Tool Descriptions**: Clear usage guidance for all 13 tools
+- **Real Directory Creation**: `prides_scaffold` now creates actual directories (not just paths)
+
 ## What is PRIDES?
 
 PRIDES (Prototype, Review, Implement, Deploy, Extend, Secure) is a mandatory, linear, health-monitored software development lifecycle where each phase is a living ecosystem of agents, subagents, and skills with continuous heartbeat monitoring.
@@ -18,12 +27,38 @@ PRIDES (Prototype, Review, Implement, Deploy, Extend, Secure) is a mandatory, li
 
 ## Installation
 
+### Via PI CLI (Recommended)
+
 ```bash
-# Via PI (recommended)
+# Install latest version (global)
 pi install https://github.com/Dream-Pixels-Forge/prides-pi.git
 
-# Or manually
+# Install specific version (pinned)
+pi install https://github.com/Dream-Pixels-Forge/prides-pi.git@v1.2.0
+
+# Install for project only (writes to .pi/settings.json)
+pi install -l https://github.com/Dream-Pixels-Forge/prides-pi.git
+```
+
+### Manual Installation
+
+```bash
+# Copy bundled extension to PI extensions directory
 cp prides.ts ~/.pi/agent/extensions/prides.ts
+
+# Or for project-local installation
+mkdir -p .pi/extensions
+cp prides.ts .pi/extensions/prides.ts
+```
+
+### Updating
+
+```bash
+# Update all installed packages
+pi update
+
+# Update this extension specifically
+pi update https://github.com/Dream-Pixels-Forge/prides-pi.git
 ```
 
 ## Development (TDD — Non-Negotiable)
