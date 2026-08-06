@@ -52,23 +52,142 @@ covered by Vitest without a running pi. `index.ts` is the only host-aware file.
 
 ## Install
 
-As a pi package (auto-discovered):
+`pi-prides` is a [pi package](https://github.com/earendil-works/pi-coding-agent/blob/main/docs/packages.md)
+that bundles an extension, seven skills, and a prompt library. The repo has
+two `package.json` files:
+
+- **repo root** (`./package.json`) — the distribution package; declares the
+  extension at `extensions/prides/index.ts` via `pi.extensions`.
+- **`extensions/prides/package.json`** — the extension itself; declares its
+  own entry via `pi.extensions: ["./index.ts"]` and lists `typebox` and
+  `@earendil-works/pi-ai` as runtime dependencies.
+
+Either one can be installed; the recommended way is the repo root so the
+bundled `skills/` and `prompts/` come along.
+
+### Recommended — `pi install` from git
 
 ```bash
-# Copy into your global or project extensions directory
-cp -r pi-prides ~/.pi/agent/extensions/pi-prides
-# or add to settings.json:  "extensions": ["/abs/path/pi-prides"]
+pi install git:github.com/Dream-Pixels-Forge/pi-prides
+pi install git:github.com/Dream-Pixels-Forge/pi-prides@v1.3.0   # pin a tag
 ```
 
-Or load it directly for a session:
+This clones the repo into `~/.pi/agent/git/github.com/Dream-Pixels-Forge/pi-prides`,
+runs `npm install`, and adds it to `~/.pi/agent/settings.json#packages`.
+All three resource types (extension + skills + prompts) load automatically
+from the conventional directories.
+
+Use `pi install -l …` to install to project settings (`.pi/settings.json`)
+instead of user settings — useful when you want the package shared with
+your team. Pi auto-installs missing project packages on startup once the
+project is trusted.
+
+### Local clone
+
+```bash
+git clone https://github.com/Dream-Pixels-Forge/pi-prides ~/pi-prides
+pi install ~/pi-prides
+```
+
+`pi install` accepts absolute paths, relative paths, and raw URLs — see
+[Package Sources](https://github.com/earendil-works/pi-coding-agent/blob/main/docs/packages.md#package-sources).
+
+### Drop into the auto-discovered extensions directory
+
+If you prefer the file-system convention over the manifest system, copy the
+extension subdirectory into pi's global or project-local extensions folder.
+Pi auto-discovers any `index.ts` or `*.ts` file under these locations:
+
+| Location | Scope |
+|----------|-------|
+| `~/.pi/agent/extensions/<name>/index.ts` | global (all projects) |
+| `~/.pi/agent/extensions/*.ts` | global (flat) |
+| `.pi/extensions/<name>/index.ts` | project-local (requires project trust) |
+| `.pi/extensions/*.ts` | project-local (flat) |
+
+```bash
+# global
+mkdir -p ~/.pi/agent/extensions/prides
+cp -r extensions/prides/. ~/.pi/agent/extensions/prides/
+cd ~/.pi/agent/extensions/prides && npm install
+
+# project-local (trust the project first; pi will then auto-discover)
+mkdir -p .pi/extensions/prides
+cp -r extensions/prides/. .pi/extensions/prides/
+cd .pi/extensions/prides && npm install
+```
+
+The bundled `skills/` and `prompts/` are NOT auto-discovered this way —
+only the `extensions/prides/` extension is. For the full package (skills +
+prompts + extension), use `pi install` (above) or register the directories
+explicitly in `settings.json` (below).
+
+### Register paths explicitly in `settings.json`
+
+Add to `~/.pi/agent/settings.json` (or `.pi/settings.json` for project-local):
+
+```jsonc
+{
+  "extensions": [
+    "/absolute/path/to/pi-prides/extensions/prides"
+  ],
+  "packages": [
+    "/absolute/path/to/pi-prides"
+  ]
+}
+```
+
+Either key works. `"extensions"` is the older path-only mechanism; `"packages"`
+is the manifest-aware mechanism that also pulls in `skills/` and `prompts/`
+from the conventional directories. You can use both — the package already
+declares its own resources via its `package.json#pi` field.
+
+### Try without installing
+
+For a single session, point pi at the extension file directly:
 
 ```bash
 pi -e ./extensions/prides/index.ts
 ```
 
-> Requires `@earendil-works/pi-coding-agent` >= 0.74.0. The bundled `skills/`
-(real pi `SKILL.md` files) and `prompts/` are contributed to pi's resource
-discovery, so `/init`, `/review`, etc. and the skills become available too.
+`./extensions/prides/` must have its own `node_modules/` (run `npm install`
+there once) so that `typebox` and `@earendil-works/pi-ai` resolve. The
+bundled skills and prompts are NOT auto-loaded with `-e`; use
+`pi install` or the manifest form for the full package.
+
+### Enable / disable resources
+
+After installing, use `pi config` to enable or disable individual
+extensions, skills, prompts, or themes from the package:
+
+```bash
+pi config              # global settings
+pi config -l           # project overrides
+```
+
+Use Tab to switch between global and project-local modes inside `pi config`.
+
+### Updating
+
+```bash
+pi update --extensions           # update all packages, reconcile pinned git refs
+pi update --extension git:github.com/Dream-Pixels-Forge/pi-prides   # update just this one
+pi update --all                   # also update the pi CLI itself
+```
+
+Git installs are pinned to the ref they were installed at. To move to a
+new tag or commit, re-install with the new ref:
+
+```bash
+pi install git:github.com/Dream-Pixels-Forge/pi-prides@v1.3.0
+```
+
+### Requirements
+
+- `@earendil-works/pi-coding-agent` >= 0.74.0 (listed as a `peerDependency`;
+  pi bundles it, so no separate install is required).
+- Node.js with `npm` available — only needed when you install from a local
+  clone or use `pi -e` (so `npm install` can resolve runtime deps).
 
 ## Tools (for the LLM)
 
