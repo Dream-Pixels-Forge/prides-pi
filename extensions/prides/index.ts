@@ -298,10 +298,14 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	// --- Resource discovery: contribute bundled skills + prompts ------------
+	// Skills and prompts live at the repo root (skills/, prompts/) which is
+	// two levels up from HERE = extensions/prides/. Without the correct path
+	// the bundled PRIDES skills and prompts are silently missing after
+	// `pi install`.
 
 	pi.on("resources_discover", async () => ({
-		skillPaths: [resolve(HERE, "../skills")],
-		promptPaths: [resolve(HERE, "../prompts")],
+		skillPaths: [resolve(HERE, "../../skills")],
+		promptPaths: [resolve(HERE, "../../prompts")],
 	}));
 
 	// --- Flags ---------------------------------------------------------------
