@@ -1,182 +1,145 @@
-# PRIDES PI Extension
+# PRIDES for pi
 
-PRIDES methodology extension for [PI](https://github.com/earendil-works/pi) coding agent. Brings quality-gated SDLC to your AI coding sessions.
+A **PRIDES** (Prototype → Review → Implement → Deploy → Extend → Secure) governance
+extension for the [pi](https://github.com/earendil-works/pi) coding agent.
 
-## What's New in v1.2.0
+PRIDES turns "just keep coding" into a **quality-gated, health-monitored software
+development lifecycle**. The extension enforces the linear phase flow, runs
+quality gates, records heartbeat pulses, supports an emergency stop, and keeps
+an event-sourced audit trail of every state change — all persisted into the
+session so it survives reloads and branch navigation.
 
-- **Gate Evaluator System**: Customizable quality gate evaluation with `GateEvaluator`, `GateContext`, and `GateResult` types
-- **Task Plan Tracking**: Add, complete, and track tasks per phase with progress metrics
-- **Event-Sourced State**: Full audit trail of all state changes with `PRIDSEvent` system
-- **Emergency Stop State**: Track emergency stop status with `setEmergencyStop`/`isEmergencyStopped`
-- **Improved Tool Descriptions**: Clear usage guidance for all 13 tools
-- **Real Directory Creation**: `prides_scaffold` now creates actual directories (not just paths)
+## What it does
 
-## What is PRIDES?
+- **Phase progression** — enforces `P → R → I → D → E → S` linear flow.
+- **Quality gates** — per-phase gates (`test-unit`, `linter`, `security`, …) that
+  must pass before a phase can advance. Gates run real shell commands or check
+  for artifact files; manual gates require human sign-off (and block advancement until
+  signed off via `prides_gate <name> --approve` or `/prides approve <name>`).
+- **Tool & session guards** — blocks `write`/`edit` during Review/Deploy/Secure
+  phases and blocks session switches/forking while a critical phase has failing
+  gates (all overridable with flags).
+- **Heartbeat monitoring** — configurable pulse interval per phase; flags the
+  agent as `STALLED` when double the interval elapses.
+- **Emergency stop** — halts all mutating tools and signals the human governor;
+  cleared with `prides_emergency_resume`.
+- **Event-sourced state** — every change is appended to an audit trail and the
+  full state is persisted to the session (branching-safe).
+- **Scaffolding** — `prides_scaffold` creates `.prides/`, `intent.json`, and
+  `dev_notes/` docs.
 
-PRIDES (Prototype, Review, Implement, Deploy, Extend, Secure) is a mandatory, linear, health-monitored software development lifecycle where each phase is a living ecosystem of agents, subagents, and skills with continuous heartbeat monitoring.
+## Architecture
 
-## Features
+The heavy logic is **decoupled and unit-tested**. The extension is two layers:
 
-- **Phase Progression**: Enforces P → R → I → D → E → S linear flow
-- **Quality Gates**: Code review, test coverage, security, performance, accessibility checks
-- **Heartbeat Monitoring**: Configurable pulse intervals per phase (30s to 5m)
-- **Emergency Stop**: LOCK_MANDATES → DISCONNECT_A2A → SNAPSHOT_STATE → SIGNAL_GOVERNOR
-- **Tool Guards**: Blocks write/edit in Review, Deploy, and Secure phases
-- **Session Guards**: Prevents session switches with failing gates in critical phases
-- **Project Scaffolding**: Generates `.prides/` directory structure and `intent.json`
+```
+extensions/prides/
+├── types.ts          Domain types (pure)
+├── phases.ts         Phase model + advance/set validation (pure)
+├── gates.ts          Gate definitions + evaluation (pure, injected runner/globber)
+├── heartbeat.ts      Interval lookup + staleness (pure)
+├── scaffold.ts       File-plan generator (pure)
+├── state.ts          State construction + event-sourced audit trail (pure)
+├── shell.ts          POSIX shell-quoting helpers (pure)
+├── gitWorkflow.ts    Branch taxonomy + step transitions (pure)
+├── engine.ts         PRIDESEngine orchestration (pure — no pi, no fs, no clock)
+└── index.ts          ExtensionAPI wiring (tools, /prides command, guards, resources)
+```
 
-## Installation
+`engine.ts` and everything it depends on import **nothing** from pi, the
+filesystem, or the wall clock — those are injected — so the whole core is
+covered by Vitest without a running pi. `index.ts` is the only host-aware file.
 
-### Via PI CLI (Recommended)
+## Install
+
+As a pi package (auto-discovered):
 
 ```bash
-# Install latest version (global)
-pi install https://github.com/Dream-Pixels-Forge/prides-pi.git
-
-# Install specific version (pinned)
-pi install https://github.com/Dream-Pixels-Forge/prides-pi.git@v1.2.0
-
-# Install for project only (writes to .pi/settings.json)
-pi install -l https://github.com/Dream-Pixels-Forge/prides-pi.git
+# Copy into your global or project extensions directory
+cp -r pi-prides ~/.pi/agent/extensions/pi-prides
+# or add to settings.json:  "extensions": ["/abs/path/pi-prides"]
 ```
 
-### Manual Installation
+Or load it directly for a session:
 
 ```bash
-# Copy bundled extension to PI extensions directory
-cp prides.ts ~/.pi/agent/extensions/prides.ts
-
-# Or for project-local installation
-mkdir -p .pi/extensions
-cp prides.ts .pi/extensions/prides.ts
+pi -e ./extensions/prides/index.ts
 ```
 
-### Updating
+> Requires `@earendil-works/pi-coding-agent` >= 0.74.0. The bundled `skills/`
+(real pi `SKILL.md` files) and `prompts/` are contributed to pi's resource
+discovery, so `/init`, `/review`, etc. and the skills become available too.
 
-```bash
-# Update all installed packages
-pi update
-
-# Update this extension specifically
-pi update https://github.com/Dream-Pixels-Forge/prides-pi.git
-```
-
-## Development (TDD — Non-Negotiable)
-
-This project is strictly test-driven. Every change must:
-
-1. **Write failing test first** — define the expected behavior
-2. **Implement minimum code** — just enough to pass
-3. **Refactor** — clean up while keeping tests green
-4. **Never commit without green tests**
-
-```bash
-# Run tests (uses Node built-in test runner + tsx)
-npm test
-
-# Run tests in watch mode
-npm run test:watch
-
-# Bundle src/ → prides.ts before publishing
-npm run bundle
-```
-
-### Project Structure
-
-```
-prides-pi/
-├── src/                    # Source modules (TDD target)
-│   ├── config.ts          # Phase definitions and heartbeats
-│   ├── gates.ts           # Quality gate definitions
-│   ├── state.ts           # State manager (pure logic)
-│   ├── guards.ts          # Tool & session guards
-│   ├── tools.ts           # Tool definitions factory
-│   ├── commands.ts        # Slash command builder
-│   └── index.ts           # Public API exports
-├── tests/
-│   └── unit/              # Unit tests (node:test)
-├── scripts/
-│   └── bundle.ts          # Bundles src/*.ts → prides.ts
-├── prides.ts              # Bundled extension (committed, PI loads this)
-├── package.json
-└── README.md
-```
-
-### Test Coverage Requirements
-
-- **100% of public APIs must have tests**
-- Tests are run on every commit via `prepublishOnly`
-- No PR merged without green test suite
-
-## Usage
-
-```bash
-# Load extension
-pi -e prides.ts
-
-# Commands
-/prides status       # Current phase, heartbeat, gates
-/prides next         # Advance to next phase
-/prides gates        # Run all quality gates
-/prides hb           # Record heartbeat pulse
-/prides stop         # Emergency stop
-/prides report       # Full session report
-/prides scaffold     # Generate PRIDES project structure
-```
-
-## Tools
+## Tools (for the LLM)
 
 | Tool | Purpose |
 |------|---------|
-| `prides_status` | Phase, heartbeat, gate status |
-| `prides_phase_advance` | Advance phase (validates gates) |
-| `prides_phase_set` | Set phase explicitly |
-| `prides_gate` | Run single quality gate |
-| `prides_gates` | Run all quality gates |
-| `prides_heartbeat` | Record health pulse |
-| `prides_emergency_stop` | Halt operations, signal governor |
-| `prides_artifact` | Log phase artifacts |
-| `prides_scaffold` | Generate project scaffold |
-| `prides_report` | Session report with recommendations |
+| `prides_status` | Phase, heartbeat, gate, task, emergency state |
+| `prides_phase_advance` | Advance to next phase (validates gates; `force`) |
+| `prides_phase_set` | Set phase explicitly (`force` to skip gate checks) |
+| `prides_gate` | Run a single named gate |
+| `prides_gates` | Run all gates for the current phase |
+| `prides_heartbeat` | Record a health pulse + intent |
+| `prides_emergency_stop` | Halt mutations, signal governor |
+| `prides_emergency_resume` | Clear the emergency stop |
+| `prides_artifact` | Log a phase artifact to the audit trail |
+| `prides_scaffold` | Generate `.prides/`, `intent.json`, `dev_notes/` |
+| `prides_report` | Full session report + recommendations |
+| `prides_task_add` | Track a task in the current phase |
+| `prides_task_done` | Mark a task complete by id |
+| `prides_task_list` | List all tracked tasks |
+| `prides_git_status` | Show Git branch taxonomy, workflow step, PR status |
+| `prides_git_branch` | Create/track branch (`feature/*`, `hotfix/*`, `bug/*`, `release/*`, `chore/*`) |
+| `prides_git_rebase` | Record/execute branch rebase onto target base branch (`main`) |
+| `prides_git_pr` | Record/create Pull Request details |
+| `prides_git_review` | Record PR code review status (`approved`, `changes_requested`) |
+| `prides_git_merge` | Merge feature branch into base branch (`main`) |
 
-## Commands vs Skills
+## Git Workflow & Branch Taxonomy
 
-PRIDES has two types of invocations: **commands** (manual) and **skills** (automatic).
+`pi-prides` includes an integrated Git Workflow Engine:
+- **Branch Lifecycle**: `branch` → `code` → `rebase` → `PR` → `review` → `merge`
+- **Branch Categories**:
+  - `main` / `master` (protected base branch)
+  - `feature/*` or `features/*` (new features & improvements)
+  - `hotfix/*` (urgent production hotfixes)
+  - `bug/*`, `bugs/*`, or `bugfix/*` (bug fixes)
+  - `release/*` (version release branches)
+  - `chore/*` or `docs/*` (maintenance, documentation)
 
-### Commands (Manual)
+## Commands (manual)
 
-Commands are invoked by the user or agent via `/prides <subcommand>`. Use these for explicit actions:
+```
+/prides status                       # current phase, gates, heartbeat, tasks
+/prides next [force]                 # advance to next phase
+/prides gates                        # run all gates for current phase
+/prides gate <name>                  # run one gate (e.g. security)
+/prides approve <gate>             # sign off a manual gate
+/prides hb <intent>                  # record a heartbeat pulse
+/prides stop <reason>                # emergency stop
+/prides resume                       # clear emergency stop
+/prides report                       # full session report
+/prides scaffold <name> [purpose]    # generate project structure
+/prides task add <desc>              # add a task
+/prides task done <id>               # complete a task
+/prides task                         # list tasks
+/prides git status                   # show active git branch & workflow step
+/prides git branch <name>            # track/create feature branch
+/prides git rebase                   # record git rebase onto main
+/prides git pr [number|url]          # record PR creation
+/prides git review <approved|...>    # record PR review verdict
+/prides git merge                    # record merge to main
+```
 
-| Command | Description |
-|---------|-------------|
-| `/prides status` | Current phase, heartbeat, gates |
-| `/prides next` | Advance to next phase |
-| `/prides gates` | Run all quality gates |
-| `/prides hb` | Record heartbeat pulse |
-| `/prides stop` | Emergency stop |
-| `/prides report` | Full session report |
-| `/prides scaffold` | Generate PRIDES project structure |
-| `/prides task add <desc>` | Add a task to current phase |
-| `/prides task done <id>` | Mark task as completed |
-| `/prides task` | List tasks with progress |
+## Flags
 
-### Skills (Automatic)
+| Flag | Default | Effect |
+|------|---------|--------|
+| `--prides-guard` | `true` | Enable write guards in Review/Deploy/Secure |
+| `--prides-lax` | `false` | Disable all write guards |
+| `--prides-force` | `false` | Allow session switch/fork past guards |
 
-Skills are guard functions that run automatically on events. They enforce PRIDES rules without manual invocation:
-
-| Skill | Trigger | Behavior |
-|-------|---------|----------|
-| **Tool Guard** | Before write/edit operations | Blocks file modifications in Review, Deploy, and Secure phases |
-| **Session Guard** | Before session switches | Prevents switching when gates fail in critical phases |
-| **Gate Evaluator** | On `prides_gate` / `prides_gates` | Evaluates quality gates using artifact/incident context |
-
-### When to Use Each
-
-- **Use commands** when you want explicit control: checking status, advancing phases, logging artifacts
-- **Skills run automatically** — you don't invoke them. They enforce rules in the background.
-- If a skill blocks an operation, fix the underlying issue (e.g., pass gates) rather than bypassing the guard
-
-## Phase Config
+## Phase config
 
 | Phase | Name | Heartbeat | Criticality |
 |-------|------|-----------|-------------|
@@ -187,10 +150,71 @@ Skills are guard functions that run automatically on events. They enforce PRIDES
 | E | Extend | 5m | Medium |
 | S | Secure | 30s | Critical |
 
+## Customizing gates
+
+`prides_scaffold` writes `.prides/gates.config.json`. Add a `"gates"` array of
+`GateDef` objects (`{ name, phase, type: "command"|"artifact"|"manual", command?, artifactGlob? }`)
+to override the built-in `DEFAULT_GATES` for your project.
+
+## Development (TDD — Non-Negotiable)
+
+This project is strictly test-driven. The pure core must stay green:
+
+```bash
+npm install
+npm test          # vitest — covers phases, gates, heartbeat, scaffold, state, engine
+npm run typecheck # tsc --noEmit
+npm run lint      # biome
+npm run check     # typecheck + lint + test (runs on prepublish)
+```
+
+Tests inject a mock clock, command runner, and globber so no shell or
+filesystem is touched.
+
+## Bundled methodology content
+
+The repository also ships the PRIDES agent persona and prompt library used to
+drive the methodology (these are reference content, contributed to pi as
+resources):
+
+- `reference/claude-code/` — the intended PRIDES Claude Code coordinator + phase subagents
+  (Prototype/Review/Implement/Deploy/Extend/Secure). **Reference only** — pi has no agent
+  API, so these are not executed by the extension; the pi-native workflow is the `prides_*`
+  tools, the `/prides` command, and the bundled PRIDES skills.
+- `prompts/` — workflow prompts (`/init`, `/review`, `/start-sprint`, …)
+- `skills/` — PRIDES-native pi skills:
+
+| Skill | Triggers On | Purpose |
+|-------|-------------|---------|
+| `prides-init` | "start project", "initialise PRIDES" | Bootstrap PRIDES phase, scaffold, set intent |
+| `prides-review` | "review", "code review", "PR check" | Run Review gates, require human sign-off |
+| `prides-gate-loop` | "run gates", "check gates" | Iterate on failing gates until all pass |
+| `prides-deploy` | "deploy", "release", "ship" | Deploy phase gates and pre-flight checks |
+| `prides-secure` | "audit", "security", "harden" | Secure-phase audit + emergency stop |
+| `prides-heartbeat` | "heartbeat", "status check" | Record health pulse and intent |
+| `prides-cybersec` | "vulnerability", "CVE", "prompt injection", "supply chain", "PQC", "incident", "breach", "zero trust", "LLM security", "AI attack" | **Full 2026+ cybersecurity skill** — threat taxonomy, scanner config, remediation playbooks, incident response, post-quantum readiness |
+
+### `prides-cybersec` Skill Structure
+
+```
+skills/prides-cybersec/
+├── SKILL.md                          # Skill instructions + workflow
+└── references/
+    ├── threat-taxonomy.md            # Full 2026+ threat taxonomy (MITRE, OWASP)
+    ├── remediation-playbooks.md      # Code-level fix recipes per threat type
+    └── secure-defaults.md            # Security-by-default config checklists
+```
+
+**Covered threat domains:**
+- Supply-chain attacks (T1.1 dependency confusion, T1.2 CI poisoning, T1.3 SBOM gaps)
+- Secrets & IAM (T2.1 leakage, T2.2 JWT abuse, T2.3 over-privilege, T2.4 MFA bypass)
+- Injection (T3.1 SQL, T3.2 SSRF, T3.3 XSS, T3.4 prompt injection, T3.5 SSTI)
+- Cryptography (T4.1 weak algorithms, T4.2 TLS misconfig, T4.3 PQC readiness, T4.4 secrets at rest)
+- Container / cloud-native (T5.1–T5.5: privilege escalation, image CVEs, RBAC, IMDS, storage ACLs)
+- LLM & AI-specific (T6.1–T6.5: prompt injection, training data extraction, agent privilege escalation, AI-generated social engineering)
+- Memory safety (T7: buffer overflows, use-after-free in FFI)
+- Data privacy & compliance (T8: PII leakage, GDPR/AI Act)
+
 ## License
 
 MIT © Dream-Pixels-Forge
-
-## Source
-
-Built from [forge-brain](https://github.com/Dream-Pixels-Forge/forge-brain) wiki — see `wiki/concepts/pi-extension-development.md` and `wiki/sources/pi-prides-extension.md`.
