@@ -1,0 +1,54 @@
+{
+	"name": "prides",
+	"version": "1.0.0",
+	"description": "PRIDES (Prototype, Review, Implement, Deploy, Extend, Secure) governance extension for the pi coding agent — quality-gated, health-monitored SDLC with tools, guards, heartbeat, and emergency stop.",
+	"main": "index.ts",
+	"type": "module",
+	"files": [
+		"index.ts",
+		"engine.ts",
+		"gates.ts",
+		"gitWorkflow.ts",
+		"heartbeat.ts",
+		"phases.ts",
+		"scaffold.ts",
+		"shell.ts",
+		"state.ts",
+		"types.ts",
+		"README.md",
+		"../../skills",
+		"../../prompts",
+		"../../reference"
+	],
+	"keywords": [
+		"pi-agent",
+		"pi-extension",
+		"prides",
+		"sdlc",
+		"governance",
+		"quality-gates",
+		"agentic",
+		"dream-pixels-forge"
+	],
+	"license": "MIT",
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"dependencies": {
+		"@earendil-works/pi-ai": "^0.74.0",
+		"typebox": "^1.1.33"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-tui": ">=0.74.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.0",
+		"@earendil-works/pi-coding-agent": ">=0.74.0",
+		"@earendil-works/pi-tui": ">=0.74.0",
+		"@types/node": "^22.0.0",
+		"typescript": "^5.0.0",
+		"vitest": "^4.1.8"
+	}
+}

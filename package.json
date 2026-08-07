@@ -1,0 +1,67 @@
+{
+	"name": "pi-prides",
+	"version": "1.0.0",
+	"description": "PRIDES (Prototype, Review, Implement, Deploy, Extend, Secure) governance extension for the pi coding agent — quality-gated, health-monitored SDLC with tools, guards, heartbeat, and emergency stop.",
+	"type": "module",
+	"main": "extensions/prides/index.ts",
+	"files": [
+		"extensions/prides",
+		"reference",
+		"prompts",
+		"skills",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"./extensions/prides/index.ts"
+		]
+	},
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"prides",
+		"sdlc",
+		"governance",
+		"quality-gates",
+		"agentic",
+		"dream-pixels-forge"
+	],
+	"scripts": {
+		"typecheck": "cd extensions/prides && npx --no-install tsc --noEmit",
+		"build": "cd extensions/prides && npx --no-install tsc",
+		"clean": "rm -rf extensions/prides/dist",
+		"test": "cd extensions/prides && npx --no-install vitest run",
+		"test:watch": "cd extensions/prides && npx --no-install vitest",
+		"lint": "cd extensions/prides && npx --no-install biome check .",
+		"lint:fix": "cd extensions/prides && npx --no-install biome check --write .",
+		"format": "cd extensions/prides && npx --no-install biome format --write .",
+		"check": "npm run typecheck && npm run lint && npm run test",
+		"prepublishOnly": "npm run check"
+	},
+	"lint-staged": {
+		"*.ts": [
+			"cd extensions/prides && npx --no-install biome check --write --unsafe .",
+			"cd extensions/prides && npx --no-install tsc --noEmit"
+		]
+	},
+	"license": "MIT",
+	"repository": {
+		"type": "github",
+		"url": "git+https://github.com/Dream-Pixels-Forge/pi-prides.git"
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-coding-agent": ">=0.74.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.5.0",
+		"@earendil-works/pi-coding-agent": "^0.74.0",
+		"@types/node": "^22.0.0",
+		"typescript": "^5.0.0",
+		"vitest": "^4.1.8"
+	},
+	"dependencies": {
+		"@earendil-works/pi-ai": "^0.74.0",
+		"typebox": "^1.1.33"
+	}
+}

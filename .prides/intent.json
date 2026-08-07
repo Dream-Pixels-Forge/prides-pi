@@ -1,0 +1,8 @@
+{
+  "name": "pi-prides",
+  "purpose": "PRIDES (Prototype, Review, Implement, Deploy, Extend, Secure) governance extension for the pi coding agent — quality-gated, health-monitored SDLC with tools, guards, heartbeat, and emergency stop.",
+  "stack": "TypeScript, pi-coding-agent, TypeBox, Biome, Vitest",
+  "repository": "https://github.com/Dream-Pixels-Forge/pi-prides",
+  "createdAt": "2026-08-06T12:41:39.505Z",
+  "methodology": "PRIDES"
+}
