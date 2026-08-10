@@ -1360,6 +1360,10 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"PRIDES controls: status, next, gates, gate <name>, hb <intent>, stop <reason>, resume, report, scaffold, task add|done|list",
 		getArgumentCompletions: (prefix) => {
+			const parts = prefix.split(/\s+/);
+			const firstWord = parts[0] ?? "";
+
+			// Level 1: subcommands
 			const subs = [
 				"status",
 				"next",
@@ -1374,10 +1378,38 @@ export default function (pi: ExtensionAPI) {
 				"task",
 				"git",
 			];
-			const filtered = subs.filter((s) => s.startsWith(prefix));
-			return filtered.length
-				? filtered.map((s) => ({ value: s, label: s }))
-				: null;
+
+			// Level 2: nested completions
+			const gitSubs = ["status", "branch", "rebase", "pr", "review", "merge"];
+			const taskSubs = ["add", "done"];
+
+			// If we're still typing the first word, filter subcommands
+			if (parts.length <= 1) {
+				const filtered = subs.filter((s) => s.startsWith(firstWord));
+				return filtered.length
+					? filtered.map((s) => ({ value: s, label: s }))
+					: null;
+			}
+
+			// Level 2 completions for git
+			if (firstWord === "git") {
+				const gitWord = parts[1] ?? "";
+				const filtered = gitSubs.filter((s) => s.startsWith(gitWord));
+				return filtered.length
+					? filtered.map((s) => ({ value: `${firstWord} ${s}`, label: s }))
+					: null;
+			}
+
+			// Level 2 completions for task
+			if (firstWord === "task") {
+				const taskWord = parts[1] ?? "";
+				const filtered = taskSubs.filter((s) => s.startsWith(taskWord));
+				return filtered.length
+					? filtered.map((s) => ({ value: `${firstWord} ${s}`, label: s }))
+					: null;
+			}
+
+			return null;
 		},
 		handler: async (args, ctx) => {
 			const parts = args.trim().split(/\s+/).filter(Boolean);
