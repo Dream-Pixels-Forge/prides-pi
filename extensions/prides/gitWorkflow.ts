@@ -176,9 +176,11 @@ export function canTransitionGitStep(
  * Check if a branch name conforms to PRIDES taxonomy.
  * Returns ok:true with the classified type if valid, or ok:false with a reason.
  */
-export function checkBranchConforms(
-	branchName: string,
-): { ok: boolean; type: BranchType; reason?: string } {
+export function checkBranchConforms(branchName: string): {
+	ok: boolean;
+	type: BranchType;
+	reason?: string;
+} {
 	const type = parseBranchType(branchName);
 	const name = branchName.trim();
 

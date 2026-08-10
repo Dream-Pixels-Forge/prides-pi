@@ -312,10 +312,7 @@ export default function (pi: ExtensionAPI) {
 			if (branch) {
 				const result = engine.initGitFromBranch(branch);
 				if (!result.conforms) {
-					ctx.ui.notify(
-						`PRIDES: ${result.message}`,
-						"warning",
-				);
+					ctx.ui.notify(`PRIDES: ${result.message}`, "warning");
 				} else {
 					ctx.ui.notify(
 						`PRIDES active — phase ${phase} (${PHASE_CONFIG[phase].name}) · branch: ${branch}`,
@@ -424,7 +421,8 @@ export default function (pi: ExtensionAPI) {
 
 		// Block git commit/push when there are issues
 		if (name === "bash" && engine) {
-			const toolInput = (event as { toolInput?: Record<string, unknown> })?.toolInput;
+			const toolInput = (event as { toolInput?: Record<string, unknown> })
+				?.toolInput;
 			const cmd = String(toolInput?.command ?? "");
 
 			// Check if this is a git operation that should be blocked
@@ -774,17 +772,19 @@ export default function (pi: ExtensionAPI) {
 					content: [{ type: "text", text }],
 					details: {
 						pulse,
-					 stalled: stallCtx,
-					 state: e.state,
+						stalled: stallCtx,
+						state: e.state,
 					},
 				};
 			});
 		},
 		renderResult(result, _options, theme) {
-			const d =
-				result.details as
-					| { pulse?: { status: string }; stalled?: { incompleteTaskCount: number } }
-					| undefined;
+			const d = result.details as
+				| {
+						pulse?: { status: string };
+						stalled?: { incompleteTaskCount: number };
+				  }
+				| undefined;
 			const status = d?.pulse?.status ?? "?";
 			const color =
 				status === "HEALTHY"
@@ -794,10 +794,7 @@ export default function (pi: ExtensionAPI) {
 						: "warning";
 			let text = theme.fg(color, `♥ ${status}`);
 			if (d?.stalled?.incompleteTaskCount) {
-				text += theme.fg(
-					"dim",
-					` (${d.stalled.incompleteTaskCount} open)`,
-				);
+				text += theme.fg("dim", ` (${d.stalled.incompleteTaskCount} open)`);
 			}
 			return new Text(text, 0, 0);
 		},
@@ -1063,7 +1060,8 @@ export default function (pi: ExtensionAPI) {
 		parameters: Type.Object({
 			severity: StringEnum(["info", "warn", "error"]),
 			category: Type.String({
-				description: "Warning category, e.g. 'gate-failure', 'taxonomy', 'security'",
+				description:
+					"Warning category, e.g. 'gate-failure', 'taxonomy', 'security'",
 			}),
 			message: Type.String({ description: "Warning message" }),
 		}),
@@ -1124,8 +1122,7 @@ export default function (pi: ExtensionAPI) {
 				const text = warnings.length
 					? warnings
 							.map(
-								(w) =>
-									`[${w.severity}] ${w.id}: ${w.category} — ${w.message}`,
+								(w) => `[${w.severity}] ${w.id}: ${w.category} — ${w.message}`,
 							)
 							.join("\n")
 					: "No active warnings";
@@ -1535,7 +1532,7 @@ export default function (pi: ExtensionAPI) {
 						break;
 					}
 					const intent: ProjectIntent = { name, purpose };
-					const r = await runOp(ctx, async (e) => {
+					await runOp(ctx, async (e) => {
 						e.setIntent(intent);
 						const files = e.planScaffold(intent);
 						const created: string[] = [];

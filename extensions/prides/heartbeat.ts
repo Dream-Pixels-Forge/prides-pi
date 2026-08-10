@@ -51,7 +51,10 @@ export interface StalledContext {
 	phaseInterval: number;
 }
 
-export function assessStaleness(state: PRIDESState, now: Clock): StalledContext {
+export function assessStaleness(
+	state: PRIDESState,
+	now: Clock,
+): StalledContext {
 	const interval = intervalFor(state.phase);
 	const incompleteTasks = state.tasks.filter(
 		(t) => t.status !== "completed" && t.phase === state.phase,

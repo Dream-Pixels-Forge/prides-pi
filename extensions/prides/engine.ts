@@ -49,8 +49,8 @@ import type {
 	Phase,
 	PRIDESAuditEvent,
 	PRIDESState,
-	ProjectIntent,
 	PRIDESWarning,
+	ProjectIntent,
 	WarningSeverity,
 } from "./types.js";
 
@@ -851,5 +851,4 @@ export class PRIDESEngine {
 
 		return lines.join("\n");
 	}
-
 }

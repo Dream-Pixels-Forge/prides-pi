@@ -36,9 +36,27 @@ describe("heartbeat", () => {
 		s.phase = "I";
 		s.heartbeat = makePulse("I", "working", "HEALTHY", () => clock.t);
 		s.tasks = [
-			{ id: 1, description: "task1", status: "completed", phase: "I", createdAt: 0 },
-			{ id: 2, description: "task2", status: "in_progress", phase: "I", createdAt: 0 },
-			{ id: 3, description: "task3", status: "pending", phase: "I", createdAt: 0 },
+			{
+				id: 1,
+				description: "task1",
+				status: "completed",
+				phase: "I",
+				createdAt: 0,
+			},
+			{
+				id: 2,
+				description: "task2",
+				status: "in_progress",
+				phase: "I",
+				createdAt: 0,
+			},
+			{
+				id: 3,
+				description: "task3",
+				status: "pending",
+				phase: "I",
+				createdAt: 0,
+			},
 		];
 
 		// Not stalled yet
@@ -60,8 +78,20 @@ describe("heartbeat", () => {
 		s.phase = "I";
 		s.heartbeat = makePulse("I", "working", "HEALTHY", () => clock.t);
 		s.tasks = [
-			{ id: 5, description: "task5", status: "pending", phase: "I", createdAt: 0 },
-			{ id: 7, description: "task7", status: "in_progress", phase: "I", createdAt: 0 },
+			{
+				id: 5,
+				description: "task5",
+				status: "pending",
+				phase: "I",
+				createdAt: 0,
+			},
+			{
+				id: 7,
+				description: "task7",
+				status: "in_progress",
+				phase: "I",
+				createdAt: 0,
+			},
 		];
 
 		// Not stalled → no reason
@@ -82,7 +112,13 @@ describe("heartbeat", () => {
 		s.phase = "I";
 		s.heartbeat = makePulse("I", "working", "HEALTHY", () => clock.t);
 		s.tasks = [
-			{ id: 1, description: "done", status: "completed", phase: "I", createdAt: 0 },
+			{
+				id: 1,
+				description: "done",
+				status: "completed",
+				phase: "I",
+				createdAt: 0,
+			},
 		];
 
 		clock.t += 70_000;

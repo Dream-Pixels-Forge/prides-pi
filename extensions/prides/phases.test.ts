@@ -54,8 +54,20 @@ describe("phases", () => {
 		s.phase = "I";
 		// Add two tasks in Implement phase
 		s.tasks = [
-			{ id: 1, description: "build auth", status: "completed", phase: "I", createdAt: 0 },
-			{ id: 2, description: "build API", status: "in_progress", phase: "I", createdAt: 0 },
+			{
+				id: 1,
+				description: "build auth",
+				status: "completed",
+				phase: "I",
+				createdAt: 0,
+			},
+			{
+				id: 2,
+				description: "build API",
+				status: "in_progress",
+				phase: "I",
+				createdAt: 0,
+			},
 		];
 		s.nextTaskId = 3;
 		const check = canAdvance(s, DEFAULT_GATES);
@@ -68,8 +80,20 @@ describe("phases", () => {
 		const s: PRIDESState = createInitialState(() => 0);
 		s.phase = "I";
 		s.tasks = [
-			{ id: 1, description: "build auth", status: "completed", phase: "I", createdAt: 0 },
-			{ id: 2, description: "build API", status: "completed", phase: "I", createdAt: 0 },
+			{
+				id: 1,
+				description: "build auth",
+				status: "completed",
+				phase: "I",
+				createdAt: 0,
+			},
+			{
+				id: 2,
+				description: "build API",
+				status: "completed",
+				phase: "I",
+				createdAt: 0,
+			},
 		];
 		s.nextTaskId = 3;
 		const check = canAdvance(s, DEFAULT_GATES);
@@ -89,7 +113,13 @@ describe("phases", () => {
 		const s: PRIDESState = createInitialState(() => 0);
 		s.phase = "P";
 		s.tasks = [
-			{ id: 1, description: "prototype something", status: "pending", phase: "P", createdAt: 0 },
+			{
+				id: 1,
+				description: "prototype something",
+				status: "pending",
+				phase: "P",
+				createdAt: 0,
+			},
 		];
 		// P→R should NOT be blocked by incomplete P tasks
 		const check = canAdvance(s, DEFAULT_GATES);

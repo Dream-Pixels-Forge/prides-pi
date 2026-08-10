@@ -11,7 +11,7 @@ import type {
 	ProjectIntent,
 } from "./types.js";
 
-export { type PRIDESWarning } from "./types.js";
+export type { PRIDESWarning } from "./types.js";
 
 const MAX_EVENTS = 200;
 
