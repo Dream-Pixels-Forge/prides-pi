@@ -52,18 +52,18 @@ covered by Vitest without a running pi. `index.ts` is the only host-aware file.
 
 ## Install
 
-As a pi package (auto-discovered):
-
 ```bash
-# Copy into your global or project extensions directory
-cp -r pi-prides ~/.pi/agent/extensions/pi-prides
-# or add to settings.json:  "extensions": ["/abs/path/pi-prides"]
+# Install from GitHub (recommended)
+pi install git:github.com/Dream-Pixels-Forge/pi-prides@v1.6.0
+
+# Or latest (no version pin)
+pi install git:github.com/Dream-Pixels-Forge/pi-prides
 ```
 
-Or load it directly for a session:
+Or try it for a single session without installing:
 
 ```bash
-pi -e ./extensions/prides/index.ts
+pi -e git:github.com/Dream-Pixels-Forge/pi-prides
 ```
 
 > Requires `@earendil-works/pi-coding-agent` >= 0.74.0. The bundled `skills/`
