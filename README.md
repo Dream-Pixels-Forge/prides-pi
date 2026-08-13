@@ -1,5 +1,7 @@
 # PRIDES for pi
 
+![PRIDES Banner](assets/banner.png)
+
 A **PRIDES** (Prototype → Review → Implement → Deploy → Extend → Secure) governance
 extension for the [pi](https://github.com/earendil-works/pi) coding agent.
 
