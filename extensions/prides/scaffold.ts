@@ -54,6 +54,20 @@ export function scaffoldPlan(
 	return [
 		{ path: ".prides/intent.json", content: intentJson },
 		{
+			path: ".prides/goal.json",
+			content: `${JSON.stringify(
+				{
+					objective: "",
+					successCriteria: [],
+					nonGoals: [],
+					constraints: [],
+					setAt: null,
+				},
+				null,
+				2,
+			)}\n`,
+		},
+		{
 			path: ".prides/gates.config.json",
 			content: `${JSON.stringify({ note: "Override gate commands per project; see DEFAULT_GATES." }, null, 2)}\n`,
 		},

@@ -40,7 +40,7 @@ Determine what the user wants to do:
 
 | Intent                    | Route To                             | Skill                                   |
 | ------------------------- | ------------------------------------ | --------------------------------------- |
-| New project / scaffold    | `prides-init`                        | Initialize PRIDES structure, set intent |
+| New project / scaffold    | `prides-init`                        | Initialize PRIDES structure, set intent + goal |
 | Start a feature / bug fix | `prides-init` → full lifecycle       | Scaffold → Prototype → Review → ...    |
 | Build / implement code    | `prides-implementation`              | Vertical slice + TDD in Implement phase |
 | Review code / PR          | `prides-review`                      | Run review gates + sign-off             |
@@ -48,6 +48,8 @@ Determine what the user wants to do:
 | Deploy / ship             | `prides-deploy`                      | Pre-flight checks + deploy              |
 | Security audit            | `prides-secure` or `prides-cybersec` | Security gates + emergency stop         |
 | Check health              | `prides-heartbeat`                   | Record pulse, detect stalls             |
+| Check goal alignment      | `prides_goal_check`                  | Drift detection against original goal   |
+| Verify completion         | `prides_goal_verify`                 | Confirm success criteria before finish  |
 | Unknown / complex         | Continue here                        | Classify further                        |
 
 ### Step 3 — Delegate to Specialist
@@ -79,11 +81,13 @@ For complex tasks that span multiple phases:
 ```
 1. prides_task_add description="[task]"
 2. [Work in current phase]
-3. prides_gates  (verify gates pass)
-4. prides_phase_advance  (move to next phase)
-5. [Continue work in new phase]
-6. prides_task_done id=[id]
-7. prides_heartbeat intent="[status]"
+3. prides_goal_check  (drift detection — auto-runs on task_add and heartbeat)
+4. prides_gates  (verify gates pass)
+5. prides_goal_verify  (confirm success criteria before critical transitions)
+6. prides_phase_advance  (move to next phase)
+7. [Continue work in new phase]
+8. prides_task_done id=[id]
+9. prides_heartbeat intent="[status]"
 ```
 
 ### Step 5 — Escalation
@@ -99,8 +103,9 @@ If something goes wrong:
 1. **Never skip phases** — PRIDES enforces P→R→I→D→E→S linear flow
 2. **Never self-approve manual gates** — `review` and `accessibility` require human sign-off
 3. **I→D requires 100% task completion** — all Implement-phase tasks must be done
-4. **Heartbeat regularly** — especially in critical phases (I, D, S)
-5. **Emergency stop is the nuclear option** — only for genuine critical failures
+4. **I→D and →S require goal verification** — call `prides_goal_verify` before advancing
+5. **Heartbeat regularly** — especially in critical phases (I, D, S)
+6. **Emergency stop is the nuclear option** — only for genuine critical failures
 
 ## Example: Feature Development Flow
 
@@ -108,22 +113,24 @@ If something goes wrong:
 User: "Add user authentication"
 
 1. prides_scaffold name="auth" purpose="User authentication system"
-2. prides_task_add description="Prototype auth approach"
-3. [Design auth architecture]
-4. prides_task_done id=1
-5. prides_phase_advance  (P→R)
-6. prides_gate review --approve  (manual sign-off)
-7. prides_phase_advance  (R→I)
-8. prides_task_add description="Implement auth middleware"
-9. prides_task_add description="Implement login endpoint"
-10. prides_task_add description="Implement session management"
-11. [Build each component, test as you go]
-12. prides_task_done id=3
-13. prides_task_done id=4
-14. prides_task_done id=5
-15. prides_gates  (verify all I gates pass)
-16. prides_phase_advance  (I→D — blocked if tasks incomplete)
-17. prides_gates  (deploy checks)
-18. [Deploy]
-19. prides_artifact kind=feature-complete path=dev_notes/auth-feature.md
+2. prides_goal_set objective="Implement JWT-based authentication" successCriteria=["POST /login returns 200 with valid creds","POST /login returns 401 with invalid creds"]
+3. prides_task_add description="Prototype auth approach"
+4. [Design auth architecture]
+5. prides_task_done id=1
+6. prides_phase_advance  (P→R)
+7. prides_gate review --approve  (manual sign-off)
+8. prides_phase_advance  (R→I)
+9. prides_task_add description="Implement auth middleware"
+10. prides_task_add description="Implement login endpoint"
+11. prides_task_add description="Implement session management"
+12. [Build each component, test as you go]
+13. prides_task_done id=3
+14. prides_task_done id=4
+15. prides_task_done id=5
+16. prides_goal_verify  (confirm success criteria before deploy)
+17. prides_gates  (verify all I gates pass)
+18. prides_phase_advance  (I→D — blocked if tasks incomplete or goal unverified)
+19. prides_gates  (deploy checks)
+20. [Deploy]
+21. prides_artifact kind=feature-complete path=dev_notes/auth-feature.md
 ```

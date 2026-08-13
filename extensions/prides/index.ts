@@ -27,6 +27,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { PRIDESEngine } from "./engine.js";
 import { DEFAULT_GATES } from "./gates.js";
+import { driftSeverity, lastGoalCheck, shouldRunDriftCheck } from "./goal.js";
 import { assessStaleness, isStalled, stalledReason } from "./heartbeat.js";
 import { canAdvance, isCritical, PHASE_CONFIG, PHASE_ORDER } from "./phases.js";
 import { shQuote } from "./shell.js";
@@ -493,13 +494,20 @@ export default function (pi: ExtensionAPI) {
 			return runOp(ctx, (e) => {
 				const s = e.state;
 				const cfg = PHASE_CONFIG[s.phase];
-				const text = [
+				const lines: string[] = [
 					`PRIDES phase: ${s.phase} (${cfg.name}) [${cfg.criticality}]`,
 					`Emergency stop: ${s.emergencyStop ? "ACTIVE" : "off"}`,
 					`Tasks: ${s.tasks.filter((t) => t.status !== "completed").length} open / ${s.tasks.length} total`,
 					`Heartbeat: ${s.heartbeat ? `${s.heartbeat.status}${isStalled(s, now) ? " (STALLED)" : ""}` : "none"}`,
 					`Gates: ${Object.values(s.gates).filter((g) => g.status === "pass").length}/${Object.keys(s.gates).length} passing`,
-				].join("\n");
+				];
+				if (s.goal) {
+					const last = lastGoalCheck(s);
+					lines.push(
+						`Goal: ${s.goal.objective}${last ? ` — last check: aligned=${last.aligned} score=${last.driftScore}` : " — not yet checked"}`,
+					);
+				}
+				const text = lines.join("\n");
 				return { content: [{ type: "text", text }], details: { state: s } };
 			});
 		},
@@ -760,13 +768,20 @@ export default function (pi: ExtensionAPI) {
 			}),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			return runOp(ctx, (e) => {
+			return runOp(ctx, async (e) => {
 				const pulse = e.heartbeat(params.intent);
 				const stallCtx = assessStaleness(e.state, now);
 				const reason = stalledReason(e.state, now);
 
 				let text = `Heartbeat: ${pulse.status}`;
 				if (reason) text += ` — ${reason}`;
+
+				if (e.state.goal && shouldRunDriftCheck(e.state, now())) {
+					const check = await e.checkGoalDrift();
+					if ("aligned" in check && !check.aligned) {
+						text += `\n⚠ Goal drift detected (${check.driftScore}): ${check.reasoning}`;
+					}
+				}
 
 				return {
 					content: [{ type: "text", text }],
@@ -974,6 +989,136 @@ export default function (pi: ExtensionAPI) {
 		},
 	});
 
+	// --- Goal tools -----------------------------------------------------------
+
+	pi.registerTool({
+		name: "prides_goal_set",
+		label: "PRIDES Set Goal",
+		description:
+			"Set the project goal with objective and success criteria for drift tracking.",
+		promptSnippet: "Set a PRIDES project goal",
+		promptGuidelines: [
+			"Use prides_goal_set immediately after scaffold to define what done looks like.",
+			"Write checkable success criteria, not vague goals.",
+		],
+		parameters: Type.Object({
+			objective: Type.String({
+				description: "One-sentence definition of done",
+			}),
+			successCriteria: Type.Array(Type.String(), {
+				description: "Checkable success criteria",
+			}),
+			nonGoals: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "Explicitly out-of-scope items",
+				}),
+			),
+			constraints: Type.Optional(
+				Type.Array(Type.String(), {
+					description: "Constraints (e.g. no new dependencies)",
+				}),
+			),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			return runOp(ctx, (e) => {
+				const r = e.setGoal({
+					objective: params.objective,
+					successCriteria: params.successCriteria,
+					nonGoals: params.nonGoals,
+					constraints: params.constraints,
+				});
+				return {
+					content: [{ type: "text", text: r.message }],
+					details: { state: e.state },
+				};
+			});
+		},
+	});
+
+	pi.registerTool({
+		name: "prides_goal_check",
+		label: "PRIDES Check Goal Drift",
+		description:
+			"Run a drift check to verify the agent is still aligned with the original goal.",
+		promptSnippet: "Run a PRIDES goal drift check",
+		promptGuidelines: [
+			"Use prides_goal_check when scope decisions are made or during heartbeat.",
+		],
+		parameters: Type.Object({}),
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			return runOp(ctx, async (e) => {
+				const check = await e.checkGoalDrift();
+				if (!("aligned" in check)) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Goal check failed: ${(check as { message: string }).message}`,
+							},
+						],
+						details: { state: e.state },
+					};
+				}
+				const severity = driftSeverity(check.driftScore);
+				const note =
+					severity === "warn"
+						? `\n⚠ Goal drift warning (${check.driftScore}): ${check.reasoning}`
+						: severity === "stop"
+							? `\n⛔ Auto-stop: severe goal drift (${check.driftScore})`
+							: "";
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Goal drift: aligned=${check.aligned} score=${check.driftScore}${note}`,
+						},
+					],
+					details: { check, state: e.state },
+				};
+			});
+		},
+	});
+
+	pi.registerTool({
+		name: "prides_goal_verify",
+		label: "PRIDES Verify Goal",
+		description:
+			"Verify all success criteria are met before finishing or advancing to critical phases.",
+		promptSnippet: "Verify PRIDES goal success criteria",
+		promptGuidelines: [
+			"Use prides_goal_verify before advancing from I→D or entering S.",
+		],
+		parameters: Type.Object({}),
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			return runOp(ctx, async (e) => {
+				const check = await e.verifyGoal();
+				if (!("aligned" in check)) {
+					return {
+						content: [
+							{
+								type: "text",
+								text: `Goal verify failed: ${(check as { message: string }).message}`,
+							},
+						],
+						details: { state: e.state },
+					};
+				}
+				const unmet = check.unmetCriteria?.length
+					? `\nUnmet: ${check.unmetCriteria.join("; ")}`
+					: "";
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Goal verify: aligned=${check.aligned} score=${check.driftScore}${unmet}`,
+						},
+					],
+					details: { check, state: e.state },
+				};
+			});
+		},
+	});
+
 	pi.registerTool({
 		name: "prides_task_add",
 		label: "PRIDES Add Task",
@@ -985,15 +1130,20 @@ export default function (pi: ExtensionAPI) {
 			phase: Type.Optional(StringEnum(PHASE_ORDER)),
 		}),
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
-			return runOp(ctx, (e) => {
+			return runOp(ctx, async (e) => {
 				const t = e.addTask(
 					params.description,
 					(params.phase as Phase) ?? e.state.phase,
 				);
+				let text = `Task #${t.id} added: ${t.description}`;
+				if (e.state.goal && shouldRunDriftCheck(e.state, now())) {
+					const check = await e.checkGoalDrift();
+					if ("aligned" in check && !check.aligned) {
+						text += `\n⚠ Goal drift detected (${check.driftScore}): ${check.reasoning}`;
+					}
+				}
 				return {
-					content: [
-						{ type: "text", text: `Task #${t.id} added: ${t.description}` },
-					],
+					content: [{ type: "text", text }],
 					details: { task: t, state: e.state },
 				};
 			});
@@ -1358,7 +1508,7 @@ export default function (pi: ExtensionAPI) {
 
 	pi.registerCommand("prides", {
 		description:
-			"PRIDES controls: status, next, gates, gate <name>, hb <intent>, stop <reason>, resume, report, scaffold, task add|done|list",
+			"PRIDES controls: status, next, gates, gate <name>, hb <intent>, stop <reason>, resume, report, scaffold, goal set|check|verify, task add|done|list",
 		getArgumentCompletions: (prefix) => {
 			const parts = prefix.split(/\s+/);
 			const firstWord = parts[0] ?? "";
@@ -1375,6 +1525,7 @@ export default function (pi: ExtensionAPI) {
 				"resume",
 				"report",
 				"scaffold",
+				"goal",
 				"task",
 				"git",
 			];
@@ -1382,6 +1533,7 @@ export default function (pi: ExtensionAPI) {
 			// Level 2: nested completions
 			const gitSubs = ["status", "branch", "rebase", "pr", "review", "merge"];
 			const taskSubs = ["add", "done"];
+			const goalSubs = ["set", "check", "verify"];
 
 			// If we're still typing the first word, filter subcommands
 			if (parts.length <= 1) {
@@ -1404,6 +1556,15 @@ export default function (pi: ExtensionAPI) {
 			if (firstWord === "task") {
 				const taskWord = parts[1] ?? "";
 				const filtered = taskSubs.filter((s) => s.startsWith(taskWord));
+				return filtered.length
+					? filtered.map((s) => ({ value: `${firstWord} ${s}`, label: s }))
+					: null;
+			}
+
+			// Level 2 completions for goal
+			if (firstWord === "goal") {
+				const goalWord = parts[1] ?? "";
+				const filtered = goalSubs.filter((s) => s.startsWith(goalWord));
 				return filtered.length
 					? filtered.map((s) => ({ value: `${firstWord} ${s}`, label: s }))
 					: null;
@@ -1550,6 +1711,62 @@ export default function (pi: ExtensionAPI) {
 				case "report": {
 					const text = await runOp(ctx, (e) => e.report());
 					show("PRIDES Report", text);
+					break;
+				}
+				case "goal": {
+					const verb = parts[1];
+					if (verb === "set") {
+						if (!rest) {
+							ctx.ui.notify(
+								"Usage: /prides goal set <objective> [criteria...]",
+								"warning",
+							);
+							break;
+						}
+						const sp = rest.split(/\s+/);
+						const objective = sp[0];
+						const successCriteria =
+							sp.slice(1).length > 0 ? sp.slice(1) : ["TBD"];
+						const r = await runOp(ctx, (e) =>
+							e.setGoal({ objective, successCriteria }),
+						);
+						ctx.ui.notify(r.message, "info");
+					} else if (verb === "check") {
+						const check = await runOp(ctx, (e) => e.checkGoalDrift());
+						if ("aligned" in check) {
+							const severity = driftSeverity(check.driftScore);
+							const note =
+								severity === "warn"
+									? ` — drift warning (${check.driftScore})`
+									: severity === "stop"
+										? " — auto-stop"
+										: "";
+							ctx.ui.notify(
+								`Goal drift: aligned=${check.aligned} score=${check.driftScore}${note}`,
+								check.aligned ? "info" : "error",
+							);
+						} else {
+							ctx.ui.notify(
+								`Goal check failed: ${(check as { message: string }).message}`,
+								"error",
+							);
+						}
+					} else if (verb === "verify") {
+						const check = await runOp(ctx, (e) => e.verifyGoal());
+						if ("aligned" in check) {
+							ctx.ui.notify(
+								`Goal verify: aligned=${check.aligned} score=${check.driftScore}`,
+								check.aligned ? "info" : "error",
+							);
+						} else {
+							ctx.ui.notify(
+								`Goal verify failed: ${(check as { message: string }).message}`,
+								"error",
+							);
+						}
+					} else {
+						ctx.ui.notify("Usage: /prides goal set|check|verify", "warning");
+					}
 					break;
 				}
 				case "scaffold": {

@@ -92,6 +92,26 @@ export interface ProjectIntent {
 	repository?: string;
 }
 
+export interface GoalSpec {
+	objective: string;
+	successCriteria: string[];
+	nonGoals?: string[];
+	constraints?: string[];
+	setAt: number;
+}
+
+export type GoalCheckKind = "drift" | "verify";
+
+export interface GoalCheckResult {
+	kind: GoalCheckKind;
+	aligned: boolean;
+	driftScore: number;
+	reasoning: string;
+	unmetCriteria?: string[];
+	suggestedCorrection?: string;
+	checkedAt: number;
+}
+
 export type BranchType =
 	| "main"
 	| "feature"
@@ -137,7 +157,10 @@ export type AuditKind =
 	| "git_rebase"
 	| "git_pr"
 	| "git_review"
-	| "git_merge";
+	| "git_merge"
+	| "goal_set"
+	| "goal_check"
+	| "goal_verify";
 
 export interface PRIDESAuditEvent {
 	kind: AuditKind;
@@ -172,6 +195,8 @@ export interface PRIDESState {
 	artifacts: Artifact[];
 	events: PRIDESAuditEvent[];
 	intent?: ProjectIntent;
+	goal?: GoalSpec;
+	goalChecks: GoalCheckResult[];
 	git?: GitWorkflowState;
 	/** Active warnings that may block operations. */
 	warnings: PRIDESWarning[];

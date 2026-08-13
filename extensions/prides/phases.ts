@@ -4,6 +4,8 @@
  * Pure functions describing the mandatory linear PRIDES flow and the gate
  * requirements for advancing. No I/O, no host dependencies.
  */
+
+import { lastGoalCheck } from "./goal.js";
 import type {
 	GateDef,
 	GateResult,
@@ -124,8 +126,13 @@ export interface AdvanceCheck {
  *  - no currently-failing gate for the current phase
  *  - when advancing from I (Implement) to D (Deploy), ALL Implement-phase
  *    tasks must be completed (100% implementation gate)
+ *  - when entering S (Secure) or advancing from I to D, goal must be verified
  */
-export function canAdvance(state: PRIDESState, defs: GateDef[]): AdvanceCheck {
+export function canAdvance(
+	state: PRIDESState,
+	defs: GateDef[],
+	force = false,
+): AdvanceCheck {
 	const next = nextPhase(state.phase);
 	if (!next) {
 		return {
@@ -148,6 +155,20 @@ export function canAdvance(state: PRIDESState, defs: GateDef[]): AdvanceCheck {
 					reason: `Implement phase requires 100% task completion before Deploy: ${incomplete.length} task(s) still open (${incomplete.map((t) => `#${t.id}`).join(", ")})`,
 				};
 			}
+		}
+	}
+
+	// Goal verification gate: require alignment before entering S, and before I->D
+	if (!force && state.goal) {
+		const last = lastGoalCheck(state);
+		const enteringCritical =
+			(state.phase === "I" && next === "D") || next === "S";
+		if (enteringCritical && (last?.kind !== "verify" || !last.aligned)) {
+			return {
+				ok: false,
+				next,
+				reason: "Goal not verified — call prides_goal_verify before advancing",
+			};
 		}
 	}
 
@@ -176,7 +197,7 @@ export function validateSetPhase(
 		return { ok: true, next: target };
 	}
 	if (!force) {
-		const check = canAdvance(state, defs);
+		const check = canAdvance(state, defs, force);
 		if (!check.ok) {
 			return {
 				ok: false,

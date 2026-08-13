@@ -31,6 +31,9 @@ export function createInitialState(
 		artifacts: [],
 		events: [],
 		intent,
+		goal: undefined,
+		goalChecks: [],
+		git: undefined,
 		warnings: [],
 	};
 }

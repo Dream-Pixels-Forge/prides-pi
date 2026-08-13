@@ -21,6 +21,15 @@ import {
 	validateBranchName,
 } from "./gitWorkflow.js";
 import {
+	buildDriftPrompt,
+	buildVerifyPrompt,
+	driftSeverity,
+	lastGoalCheck,
+	parseGoalVerdict,
+	recordGoalCheck,
+	summarizeRecentActivity,
+} from "./goal.js";
+import {
 	classifyPulse,
 	intervalFor,
 	isStalled,
@@ -44,6 +53,8 @@ import type {
 	GitWorkflowState,
 	GitWorkflowStep,
 	Globber,
+	GoalCheckResult,
+	GoalSpec,
 	HeartbeatPulse,
 	Judge,
 	Phase,
@@ -290,6 +301,72 @@ export class PRIDESEngine {
 			message: `Heartbeat ${status}`,
 		});
 		return pulse;
+	}
+
+	// ---- Goal loop ----------------------------------------------------------
+
+	setGoal(goal: Omit<GoalSpec, "setAt">): OpResult {
+		const full: GoalSpec = { ...goal, setAt: this.deps.now() };
+		this.state = { ...this.state, goal: full };
+		this.commit({
+			kind: "goal_set",
+			phase: this.state.phase,
+			message: `Goal set: ${goal.objective}`,
+		});
+		return { ok: true, message: `Goal set: ${goal.objective}` };
+	}
+
+	async checkGoalDrift(): Promise<GoalCheckResult | OpResult> {
+		if (!this.state.goal)
+			return { ok: false, message: "No goal set — call prides_goal_set first" };
+		const activity = summarizeRecentActivity(this.state, this.deps.now());
+		const prompt = buildDriftPrompt(this.state.goal, activity);
+		const verdict = await this.deps.judge(prompt, { cwd: this.deps.cwd });
+		const result = parseGoalVerdict("drift", verdict, this.deps.now);
+		this.state = recordGoalCheck(this.state, result);
+		this.commit({
+			kind: "goal_check",
+			phase: this.state.phase,
+			message: `Drift check: aligned=${result.aligned} score=${result.driftScore}`,
+		});
+
+		const severity = driftSeverity(result.driftScore);
+		if (severity === "warn") {
+			this.addWarning(
+				"warn",
+				"goal-drift",
+				result.suggestedCorrection ?? result.reasoning,
+			);
+		} else if (severity === "stop") {
+			this.state = { ...this.state, emergencyStop: true };
+			this.commit({
+				kind: "emergency_stop",
+				phase: this.state.phase,
+				message: `Auto-stop: severe goal drift (${result.driftScore}) — ${result.reasoning}`,
+			});
+		}
+
+		return result;
+	}
+
+	async verifyGoal(): Promise<GoalCheckResult | OpResult> {
+		if (!this.state.goal)
+			return { ok: false, message: "No goal set — call prides_goal_set first" };
+		const activity = summarizeRecentActivity(
+			this.state,
+			this.deps.now(),
+			24 * 60 * 60 * 1000,
+		);
+		const prompt = buildVerifyPrompt(this.state.goal, activity);
+		const verdict = await this.deps.judge(prompt, { cwd: this.deps.cwd });
+		const result = parseGoalVerdict("verify", verdict, this.deps.now);
+		this.state = recordGoalCheck(this.state, result);
+		this.commit({
+			kind: "goal_verify",
+			phase: this.state.phase,
+			message: `Goal verify: aligned=${result.aligned}`,
+		});
+		return result;
 	}
 
 	// ---- Emergency stop -----------------------------------------------------
@@ -779,6 +856,21 @@ export class PRIDESEngine {
 		lines.push(`Entered: ${new Date(s.phaseEnteredAt).toISOString()}`);
 		if (s.emergencyStop) lines.push(`⛔ EMERGENCY STOP ACTIVE`);
 		lines.push("");
+
+		if (s.goal) {
+			lines.push(`## Goal`);
+			lines.push(`  Objective: ${s.goal.objective}`);
+			lines.push(`  Success criteria: ${s.goal.successCriteria.join("; ")}`);
+			const last = lastGoalCheck(s);
+			if (last) {
+				lines.push(
+					`  Last check: ${last.kind} — aligned=${last.aligned} score=${last.driftScore}`,
+				);
+			} else {
+				lines.push(`  Last check: none`);
+			}
+			lines.push("");
+		}
 
 		lines.push(`## Git Workflow`);
 		lines.push(`  ${formatGitWorkflowSummary(s.git).replace(/\n/g, "\n  ")}`);
