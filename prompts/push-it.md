@@ -54,5 +54,5 @@ git push
 ### 6. Record in PRIDES
 If on a feature branch, record the push:
 ```
-prides_git_step step="code"
+prides_git_status
 ```

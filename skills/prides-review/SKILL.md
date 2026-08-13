@@ -22,7 +22,7 @@ Make the Review phase auditable and gated.
 2. If not already in Review, advance with `prides_phase_advance` (only after the prior phase's gates pass).
 3. Run Review-phase gates with `prides_gates`. For each `fail`, fix and re-run `prides_gate <name>`.
 4. The `review` gate is **manual** — it blocks advancement until signed off. Record sign-off with:
-   - `prides_gate review --approve` (tool), or
+   - `prides_gate` with `approve: true` (tool parameter), or
    - `/prides approve review` (command).
 5. Do a lightweight code-review pass: surface untested paths, missing docs, and risky diffs; log findings as `prides_artifact` (kind `review-notes`).
 6. Only after `prides_gates` shows no `fail` and `review` is signed off, advance with `prides_phase_advance`.

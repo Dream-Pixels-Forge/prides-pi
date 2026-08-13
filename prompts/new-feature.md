@@ -29,7 +29,7 @@ prides_gates
 
 The `review` gate is manual — request human sign-off:
 ```
-prides_gate review --approve
+prides_gate review approve=true
 ```
 
 ### 3. Implement Phase

@@ -23,7 +23,7 @@ Loop the current phase's quality gates to green.
    - Fix the underlying issue (code, config, or missing artifact).
    - Re-run just that gate with `prides_gate <name>`.
 3. For each `pending` **manual** gate, request explicit human sign-off; record it with
-   `prides_gate <name> --approve` (or `/prides approve <name>`). Do not self-approve.
+   `prides_gate <name> approve=true` (or `/prides approve <name>`). Do not self-approve.
 4. Repeat steps 1–3 until every gate is `pass`, or only manual gates remain pending and signed off.
 5. Call `prides_phase_advance` (or `/prides next`) to proceed to the next phase.
 

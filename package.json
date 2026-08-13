@@ -1,6 +1,6 @@
 {
 	"name": "pi-prides",
-	"version": "1.6.0",
+	"version": "1.6.1",
 	"description": "PRIDES (Prototype, Review, Implement, Deploy, Extend, Secure) governance extension for the pi coding agent — quality-gated, health-monitored SDLC with tools, guards, heartbeat, and emergency stop.",
 	"type": "module",
 	"main": "extensions/prides/index.ts",

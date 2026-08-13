@@ -20,7 +20,7 @@ Central orchestrator that classifies tasks and delegates to specialist skills.
 ## When This Skill Activates
 
 - Starting a new project or feature
-- User says "build X", "fix Y", "deploy", "review this", "audit"
+- User says "build X", "fix Y", "deploy", "review this", "audit", "brainstorm about"
 - Switching between PRIDES phases
 - Multi-step workflows that span multiple phases
 
@@ -38,34 +38,38 @@ Read the current phase, gate status, heartbeat, and any emergency stop.
 
 Determine what the user wants to do:
 
-| Intent | Route To | Skill |
-|--------|----------|-------|
-| New project / scaffold | `prides-init` | Initialize PRIDES structure |
-| Start a feature / bug fix | `prides-init` → full lifecycle | Prototype → Review → Implement → Deploy |
-| Review code / PR | `prides-review` | Run review gates + sign-off |
-| Make gates pass | `prides-gate-loop` | Loop gates until green |
-| Deploy / ship | `prides-deploy` | Pre-flight checks + deploy |
-| Security audit | `prides-secure` or `prides-cybersec` | Security gates + emergency stop |
-| Check health | `prides-heartbeat` | Record pulse, detect stalls |
-| Unknown / complex | Continue here | Classify further |
+| Intent                    | Route To                             | Skill                                   |
+| ------------------------- | ------------------------------------ | --------------------------------------- |
+| New project / scaffold    | `prides-init`                        | Initialize PRIDES structure, set intent |
+| Start a feature / bug fix | `prides-init` → full lifecycle       | Scaffold → Prototype → Review → ...    |
+| Build / implement code    | `prides-implementation`              | Vertical slice + TDD in Implement phase |
+| Review code / PR          | `prides-review`                      | Run review gates + sign-off             |
+| Make gates pass           | `prides-gate-loop`                   | Loop gates until green                  |
+| Deploy / ship             | `prides-deploy`                      | Pre-flight checks + deploy              |
+| Security audit            | `prides-secure` or `prides-cybersec` | Security gates + emergency stop         |
+| Check health              | `prides-heartbeat`                   | Record pulse, detect stalls             |
+| Unknown / complex         | Continue here                        | Classify further                        |
 
 ### Step 3 — Delegate to Specialist
 
 Based on classification, follow the specialist skill's instructions:
 
 **For new work:**
+
 1. Call `prides_task_add` to create a task
 2. Work through the task using the appropriate phase
 3. Call `prides_task_done` when complete
 4. Record heartbeat periodically: `prides_heartbeat intent="[what you're doing]"`
 
 **For gate management:**
+
 1. Follow `skills/prides-gate-loop/SKILL.md`
 2. Loop `prides_gates` → fix → re-run until green
 
 **For phase transitions:**
+
 1. Verify current phase gates pass
-2. For I→D: verify ALL Implement tasks are 100% complete
+2. For I→D: verify ALL Implement tasks are 100% complete, if not then loop `prides_task_add description="BLOCKED: [reason]"` until they're 100% complete
 3. Call `prides_phase_advance`
 
 ### Step 4 — Multi-Phase Workflows
@@ -85,6 +89,7 @@ For complex tasks that span multiple phases:
 ### Step 5 — Escalation
 
 If something goes wrong:
+
 - Gate keeps failing after fix → `prides_task_add description="BLOCKED: [reason]"`
 - Critical failure → `prides_emergency_stop reason="[reason]"`
 - Agent stalled → `prides_report` to surface state

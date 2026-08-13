@@ -15,7 +15,7 @@ session so it survives reloads and branch navigation.
 - **Quality gates** — per-phase gates (`test-unit`, `linter`, `security`, …) that
   must pass before a phase can advance. Gates run real shell commands or check
   for artifact files; manual gates require human sign-off (and block advancement until
-  signed off via `prides_gate <name> --approve` or `/prides approve <name>`).
+  signed off via `prides_gate <name> approve=true` or `/prides approve <name>`).
 - **Tool & session guards** — blocks `write`/`edit` during Review/Deploy/Secure
   phases and blocks session switches/forking while a critical phase has failing
   gates (all overridable with flags).
@@ -54,7 +54,7 @@ covered by Vitest without a running pi. `index.ts` is the only host-aware file.
 
 ```bash
 # Install from GitHub (recommended)
-pi install git:github.com/Dream-Pixels-Forge/pi-prides@v1.6.0
+pi install git:github.com/Dream-Pixels-Forge/pi-prides@v1.6.1
 
 # Or latest (no version pin)
 pi install git:github.com/Dream-Pixels-Forge/pi-prides
@@ -68,7 +68,8 @@ pi -e git:github.com/Dream-Pixels-Forge/pi-prides
 
 > Requires `@earendil-works/pi-coding-agent` >= 0.74.0. The bundled `skills/`
 (real pi `SKILL.md` files) and `prompts/` are contributed to pi's resource
-discovery, so `/init`, `/review`, etc. and the skills become available too.
+discovery, so the skills become available as capabilities and the prompts
+become available as slash commands.
 
 ## Tools (for the LLM)
 
@@ -94,6 +95,9 @@ discovery, so `/init`, `/review`, etc. and the skills become available too.
 | `prides_git_pr` | Record/create Pull Request details |
 | `prides_git_review` | Record PR code review status (`approved`, `changes_requested`) |
 | `prides_git_merge` | Merge feature branch into base branch (`main`) |
+| `prides_warn` | Add a warning that may block git operations |
+| `prides_warn_resolve` | Resolve (dismiss) an active warning by id |
+| `prides_warn_list` | List all active (unresolved) warnings |
 
 ## Git Workflow & Branch Taxonomy
 
@@ -187,6 +191,7 @@ resources):
 | Skill | Triggers On | Purpose |
 |-------|-------------|---------|
 | `prides-init` | "start project", "initialise PRIDES" | Bootstrap PRIDES phase, scaffold, set intent |
+| `prides-implementation` | "build", "implement", "code", "develop", "TDD" | Vertical slice architecture + strict TDD enforcement |
 | `prides-review` | "review", "code review", "PR check" | Run Review gates, require human sign-off |
 | `prides-gate-loop` | "run gates", "check gates" | Iterate on failing gates until all pass |
 | `prides-deploy` | "deploy", "release", "ship" | Deploy phase gates and pre-flight checks |

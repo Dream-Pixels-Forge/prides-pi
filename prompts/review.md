@@ -28,7 +28,7 @@ prides_gates
 ### 4. Manual Review Gate
 The `review` gate requires human sign-off:
 ```
-prides_gate review --approve
+prides_gate review approve=true
 ```
 
 ### 5. Document Findings
