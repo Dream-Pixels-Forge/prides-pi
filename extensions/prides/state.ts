@@ -35,6 +35,7 @@ export function createInitialState(
 		goalChecks: [],
 		git: undefined,
 		warnings: [],
+		driftAck: undefined,
 	};
 }
 

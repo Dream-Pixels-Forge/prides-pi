@@ -127,7 +127,34 @@ export interface AdvanceCheck {
  *  - when advancing from I (Implement) to D (Deploy), ALL Implement-phase
  *    tasks must be completed (100% implementation gate)
  *  - when entering S (Secure) or advancing from I to D, goal must be verified
+ *  - any active goal-drift warning must be acknowledged (or force)
  */
+
+/** Returns {blocked, reason} if an active, unacknowledged goal-drift warning
+ *  would block advancement. An ack covers the warning iff the ack's score is
+ *  >= the warning's associated drift score. */
+export function checkDriftBlock(state: PRIDESState): {
+	blocked: boolean;
+	reason?: string;
+	warningId?: string;
+} {
+	const driftWarn = state.warnings.find(
+		(w) =>
+			!w.resolvedAt && w.severity === "warn" && w.category === "goal-drift",
+	);
+	if (!driftWarn) return { blocked: false };
+	const ack = state.driftAck;
+	if (ack && ack.at >= driftWarn.createdAt) {
+		// Acknowledged after the warning was raised — ok
+		return { blocked: false };
+	}
+	return {
+		blocked: true,
+		warningId: driftWarn.id,
+		reason: `Goal drift warning active — call prides_drift_ack (id=${driftWarn.id}) before advancing past this phase, or pass force=true to override`,
+	};
+}
+
 export function canAdvance(
 	state: PRIDESState,
 	defs: GateDef[],
@@ -169,6 +196,16 @@ export function canAdvance(
 				next,
 				reason: "Goal not verified — call prides_goal_verify before advancing",
 			};
+		}
+	}
+
+	// Drift enforcement: an unacknowledged active goal-drift warning blocks
+	// advancement. The agent must call prides_drift_ack to acknowledge it
+	// (or pass force=true to override).
+	if (!force) {
+		const driftBlock = checkDriftBlock(state);
+		if (driftBlock.blocked) {
+			return { ok: false, next, reason: driftBlock.reason };
 		}
 	}
 

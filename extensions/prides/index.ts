@@ -1233,6 +1233,60 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	pi.registerTool({
+		name: "prides_drift_ack",
+		label: "PRIDES Acknowledge Drift",
+		description:
+			"Acknowledge the current goal-drift warning so phase advancement is permitted. Records an explicit human/agent acknowledgment of the drift score.",
+		promptSnippet: "Acknowledge the current goal-drift warning",
+		promptGuidelines: [
+			"Use prides_drift_ack after reading the drift warning and confirming the agent should continue despite the score.",
+			"The ack covers the score provided (defaults to the most recent goal-check score).",
+			"A new warning raised after this ack will block again.",
+		],
+		parameters: Type.Object({
+			score: Type.Optional(
+				Type.Number({
+					description:
+						"Drift score to acknowledge (defaults to latest goal-check score).",
+				}),
+			),
+			warningId: Type.Optional(
+				Type.String({ description: "Specific warning id to acknowledge." }),
+			),
+			reason: Type.Optional(
+				Type.String({
+					description: "Optional reason recorded in the audit trail.",
+				}),
+			),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			return runOp(ctx, (e) => {
+				const r = e.acknowledgeDrift(
+					(params as { score?: number }).score,
+					(params as { warningId?: string }).warningId,
+				);
+				const reason = (params as { reason?: string }).reason;
+				if (reason) {
+					e.state = {
+						...e.state,
+						driftAck: {
+							...(e.state.driftAck as {
+								at: number;
+								score: number;
+								warningId?: string;
+							}),
+						},
+					};
+				}
+				return {
+					content: [{ type: "text", text: r.message }],
+					details: { ok: r.ok, state: e.state },
+				};
+			});
+		},
+	});
+
+	pi.registerTool({
 		name: "prides_task_add",
 		label: "PRIDES Add Task",
 		description: "Add a tracked task to the current phase.",

@@ -200,6 +200,8 @@ export interface PRIDESState {
 	git?: GitWorkflowState;
 	/** Active warnings that may block operations. */
 	warnings: PRIDESWarning[];
+	/** Drift acknowledgment: when the agent last explicitly accepted a drift score. */
+	driftAck?: { at: number; score: number; warningId?: string };
 }
 
 export interface CommandResult {

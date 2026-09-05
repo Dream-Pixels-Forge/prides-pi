@@ -124,6 +124,11 @@ export class PRIDESEngine {
 		return buildStatus(this.state, this.defs, counts, this.deps.now);
 	}
 
+	/** Swap the LLM judge (used by tests to simulate drift verdicts). */
+	setJudge(judge: Judge): void {
+		this.deps.judge = judge;
+	}
+
 	private commit(
 		event: Omit<PRIDESAuditEvent, "at">,
 		actor: "tool" | "command" = "tool",
@@ -389,6 +394,29 @@ export class PRIDESEngine {
 			message: `Goal verify: aligned=${result.aligned}`,
 		});
 		return result;
+	}
+
+	/** Acknowledge the current goal-drift warning so phase advance is permitted. */
+	acknowledgeDrift(score?: number, warningId?: string): OpResult {
+		const last = lastGoalCheck(this.state);
+		const ackScore = score ?? last?.driftScore ?? 0;
+		this.state = {
+			...this.state,
+			driftAck: {
+				at: this.deps.now(),
+				score: ackScore,
+				warningId,
+			},
+		};
+		this.commit({
+			kind: "goal_check",
+			phase: this.state.phase,
+			message: `Drift acknowledged: score=${ackScore}${warningId ? ` warningId=${warningId}` : ""}`,
+		});
+		return {
+			ok: true,
+			message: `Drift acknowledged at score ${ackScore}`,
+		};
 	}
 
 	// ---- Emergency stop -----------------------------------------------------
