@@ -93,6 +93,64 @@ describe("PRIDESEngine", () => {
 		expect(report).toContain("Recommendations");
 	});
 
+	it("produces a JSON report when format is 'json'", () => {
+		const { engine } = makeEngine();
+		const parsed = engine.report("json");
+		expect(typeof parsed).toBe("object");
+		expect(parsed.format).toBe("json");
+		expect(parsed.phase).toBe("P");
+		expect(typeof parsed.phaseName).toBe("string");
+		expect(typeof parsed.criticality).toBe("string");
+		expect(parsed.enteredAt).toBe(engine.state.phaseEnteredAt);
+		expect(parsed.emergencyStop).toBe(false);
+		expect(Array.isArray(parsed.phaseGates)).toBe(true);
+		expect(Array.isArray(parsed.tasks)).toBe(true);
+		expect(parsed.tasksOpen).toBe(0);
+		expect(parsed.tasksTotal).toBe(0);
+		expect(Array.isArray(parsed.recommendations)).toBe(true);
+		expect(typeof parsed.goal).toBe("object");
+	});
+
+	it("JSON report includes goal when one is set", () => {
+		const { engine } = makeEngine();
+		engine.setGoal({
+			objective: "Ship the thing",
+			successCriteria: ["tests pass", "docs written"],
+		});
+		const parsed = engine.report("json");
+		expect(parsed.goal).not.toBeNull();
+		expect(parsed.goal?.objective).toBe("Ship the thing");
+		expect(parsed.goal?.successCriteria).toEqual([
+			"tests pass",
+			"docs written",
+		]);
+	});
+
+	it("report() defaults to text format when no argument is given", () => {
+		const { engine } = makeEngine();
+		const text = engine.report();
+		expect(typeof text).toBe("string");
+	});
+
+	it("JSON report is fully JSON-serializable (no Date, no undefined values)", () => {
+		const { engine } = makeEngine();
+		engine.setGoal({
+			objective: "Ship it",
+			successCriteria: ["a", "b"],
+			nonGoals: ["c"],
+			constraints: ["d"],
+		});
+		engine.addTask("first");
+		const parsed = engine.report("json");
+		// Round-trip — must not throw on serialize or re-parse
+		const round = JSON.parse(JSON.stringify(parsed));
+		expect(round.format).toBe("json");
+		expect(round.goal?.nonGoals).toEqual(["c"]);
+		expect(round.tasks[0].description).toBe("first");
+		// No top-level undefined should leak into the serialized form
+		expect(JSON.stringify(parsed)).not.toContain("undefined");
+	});
+
 	it("plans a scaffold and stamps intent", () => {
 		const { engine } = makeEngine();
 		engine.setIntent({ name: "Acme", purpose: "demo" });

@@ -47,19 +47,23 @@ import type {
 	Artifact,
 	BranchType,
 	Clock,
+	Criticality,
 	GateDef,
 	GateResult,
 	GateRunner,
+	GateType,
 	GitWorkflowState,
 	GitWorkflowStep,
 	Globber,
 	GoalCheckResult,
 	GoalSpec,
 	HeartbeatPulse,
+	HeartbeatStatus,
 	Judge,
 	Phase,
 	PRIDESAuditEvent,
 	PRIDESState,
+	PRIDESTask,
 	PRIDESWarning,
 	ProjectIntent,
 	WarningSeverity,
@@ -844,90 +848,31 @@ export class PRIDESEngine {
 
 	// ---- Report --------------------------------------------------------------
 
-	report(): string {
+	report(): string;
+	report(format: "text"): string;
+	report(format: "json"): ReportJson;
+	report(format: "text" | "json" = "text"): string | ReportJson {
+		const snapshot = this.snapshot();
+		if (format === "json") return snapshot;
+		return renderReportText(snapshot);
+	}
+
+	/** Build a structured, JSON-serializable snapshot of the current session. */
+	snapshot(): ReportJson {
 		const s = this.state;
 		const cfg = getPhaseConfig(s.phase);
-		const lines: string[] = [];
-		lines.push(`# PRIDES Session Report`);
-		lines.push("");
-		lines.push(
-			`Phase: ${s.phase} (${cfg.name}) — ${cfg.criticality} criticality`,
-		);
-		lines.push(`Entered: ${new Date(s.phaseEnteredAt).toISOString()}`);
-		if (s.emergencyStop) lines.push(`⛔ EMERGENCY STOP ACTIVE`);
-		lines.push("");
-
-		if (s.goal) {
-			lines.push(`## Goal`);
-			lines.push(`  Objective: ${s.goal.objective}`);
-			lines.push(`  Success criteria: ${s.goal.successCriteria.join("; ")}`);
-			const last = lastGoalCheck(s);
-			if (last) {
-				lines.push(
-					`  Last check: ${last.kind} — aligned=${last.aligned} score=${last.driftScore}`,
-				);
-			} else {
-				lines.push(`  Last check: none`);
-			}
-			lines.push("");
-		}
-
-		lines.push(`## Git Workflow`);
-		lines.push(`  ${formatGitWorkflowSummary(s.git).replace(/\n/g, "\n  ")}`);
-		lines.push("");
-
-		lines.push(`## Quality gates (phase ${s.phase})`);
 		const phaseGates = getGatesForPhase(s.phase, this.defs);
-		if (phaseGates.length === 0) {
-			lines.push(`  (none defined for this phase)`);
-		} else {
-			for (const g of phaseGates) {
-				const r = s.gates[g.name];
-				const mark = r
-					? r.status === "pass"
-						? "✓"
-						: r.status === "fail"
-							? "✗"
-							: "•"
-					: "?";
-				lines.push(`  ${mark} ${g.name} — ${r ? r.status : "not run"}`);
-			}
-		}
-		lines.push("");
-
-		lines.push(`## Tasks`);
 		const open = s.tasks.filter((t) => t.status !== "completed");
-		lines.push(`  ${open.length} open / ${s.tasks.length} total`);
-		for (const t of s.tasks) {
-			lines.push(
-				`  [${t.status === "completed" ? "x" : " "}] #${t.id} (${t.phase}) ${t.description}`,
-			);
-		}
-		lines.push("");
+		const last = lastGoalCheck(s);
+		const failing = phaseGates
+			.map((g) => s.gates[g.name])
+			.filter((r) => r && r.status === "fail");
 
-		lines.push(`## Heartbeat`);
-		if (s.heartbeat) {
-			const stalled = isStalled(s, this.deps.now);
-			lines.push(
-				`  Last: ${s.heartbeat.status} @ ${new Date(s.heartbeat.at).toISOString()}`,
-			);
-			lines.push(
-				`  Interval: ${intervalFor(s.phase)}ms — ${stalled ? "STALLED" : "within budget"}`,
-			);
-		} else {
-			lines.push(`  No pulse recorded yet`);
-		}
-		lines.push("");
-
-		lines.push(`## Recommendations`);
 		const recs: string[] = [];
 		if (s.emergencyStop)
 			recs.push(
 				"Resolve the emergency and run `prides_emergency_resume` before any further work.",
 			);
-		const failing = phaseGates
-			.map((g) => s.gates[g.name])
-			.filter((r) => r && r.status === "fail");
 		if (failing.length)
 			recs.push(
 				`Fix failing gate(s): ${failing.map((r) => r.name).join(", ")} before advancing.`,
@@ -939,8 +884,207 @@ export class PRIDESEngine {
 			recs.push(`When gates pass, advance to ${next}.`);
 		if (recs.length === 0)
 			recs.push("All checks green — continue the PRIDES flow.");
-		for (const r of recs) lines.push(`  - ${r}`);
 
-		return lines.join("\n");
+		return {
+			format: "json",
+			phase: s.phase,
+			phaseName: cfg.name,
+			criticality: cfg.criticality,
+			enteredAt: s.phaseEnteredAt,
+			emergencyStop: s.emergencyStop,
+			goal: s.goal
+				? {
+						objective: s.goal.objective,
+						successCriteria: s.goal.successCriteria,
+						nonGoals: s.goal.nonGoals ?? [],
+						constraints: s.goal.constraints ?? [],
+						setAt: s.goal.setAt,
+						lastCheck: last
+							? {
+									kind: last.kind,
+									aligned: last.aligned,
+									driftScore: last.driftScore,
+									reasoning: last.reasoning,
+									checkedAt: last.checkedAt,
+								}
+							: null,
+					}
+				: null,
+			git: s.git ?? null,
+			phaseGates: phaseGates.map((g) => {
+				const r = s.gates[g.name];
+				return {
+					name: g.name,
+					type: g.type,
+					status: r ? r.status : "not_run",
+					message: r?.message ?? null,
+					score: r?.score ?? null,
+					ranAt: r?.ranAt ?? null,
+				};
+			}),
+			tasks: s.tasks.map((t) => ({
+				id: t.id,
+				phase: t.phase,
+				status: t.status,
+				description: t.description,
+				createdAt: t.createdAt,
+			})),
+			tasksOpen: open.length,
+			tasksTotal: s.tasks.length,
+			heartbeat: s.heartbeat
+				? {
+						status: s.heartbeat.status,
+						intent: s.heartbeat.intent,
+						at: s.heartbeat.at,
+						stalled: isStalled(s, this.deps.now),
+						intervalMs: intervalFor(s.phase),
+					}
+				: null,
+			warnings: s.warnings.map((w) => ({
+				id: w.id,
+				severity: w.severity,
+				category: w.category,
+				message: w.message,
+				createdAt: w.createdAt,
+				resolvedAt: w.resolvedAt ?? null,
+			})),
+			recommendations: recs,
+		};
 	}
+}
+
+/** Structured, JSON-serializable report snapshot (telemetry export). */
+export interface ReportJson {
+	format: "json";
+	phase: Phase;
+	phaseName: string;
+	criticality: Criticality;
+	enteredAt: number;
+	emergencyStop: boolean;
+	goal: {
+		objective: string;
+		successCriteria: string[];
+		nonGoals: string[];
+		constraints: string[];
+		setAt: number;
+		lastCheck: {
+			kind: "drift" | "verify";
+			aligned: boolean;
+			driftScore: number;
+			reasoning: string;
+			checkedAt: number;
+		} | null;
+	} | null;
+	git: GitWorkflowState | null;
+	phaseGates: Array<{
+		name: string;
+		type: GateType;
+		status: "pass" | "fail" | "warn" | "pending" | "not_run";
+		message: string | null;
+		score: number | null;
+		ranAt: number | null;
+	}>;
+	tasks: Array<{
+		id: number;
+		phase: Phase;
+		status: PRIDESTask["status"];
+		description: string;
+		createdAt: number;
+	}>;
+	tasksOpen: number;
+	tasksTotal: number;
+	heartbeat: {
+		status: HeartbeatStatus;
+		intent: string;
+		at: number;
+		stalled: boolean;
+		intervalMs: number;
+	} | null;
+	warnings: Array<{
+		id: string;
+		severity: WarningSeverity;
+		category: string;
+		message: string;
+		createdAt: number;
+		resolvedAt: number | null;
+	}>;
+	recommendations: string[];
+}
+
+/** Render the structured snapshot as the original human-readable text report. */
+function renderReportText(r: ReportJson): string {
+	const lines: string[] = [];
+	lines.push(`# PRIDES Session Report`);
+	lines.push("");
+	lines.push(
+		`Phase: ${r.phase} (${r.phaseName}) — ${r.criticality} criticality`,
+	);
+	lines.push(`Entered: ${new Date(r.enteredAt).toISOString()}`);
+	if (r.emergencyStop) lines.push(`⛔ EMERGENCY STOP ACTIVE`);
+	lines.push("");
+
+	if (r.goal) {
+		lines.push(`## Goal`);
+		lines.push(`  Objective: ${r.goal.objective}`);
+		lines.push(`  Success criteria: ${r.goal.successCriteria.join("; ")}`);
+		if (r.goal.lastCheck) {
+			lines.push(
+				`  Last check: ${r.goal.lastCheck.kind} — aligned=${r.goal.lastCheck.aligned} score=${r.goal.lastCheck.driftScore}`,
+			);
+		} else {
+			lines.push(`  Last check: none`);
+		}
+		lines.push("");
+	}
+
+	lines.push(`## Git Workflow`);
+	lines.push(
+		`  ${formatGitWorkflowSummary(r.git ?? undefined).replace(/\n/g, "\n  ")}`,
+	);
+	lines.push("");
+
+	lines.push(`## Quality gates (phase ${r.phase})`);
+	if (r.phaseGates.length === 0) {
+		lines.push(`  (none defined for this phase)`);
+	} else {
+		for (const g of r.phaseGates) {
+			const mark =
+				g.status === "pass"
+					? "✓"
+					: g.status === "fail"
+						? "✗"
+						: g.status === "not_run"
+							? "?"
+							: "•";
+			lines.push(`  ${mark} ${g.name} — ${g.status}`);
+		}
+	}
+	lines.push("");
+
+	lines.push(`## Tasks`);
+	lines.push(`  ${r.tasksOpen} open / ${r.tasksTotal} total`);
+	for (const t of r.tasks) {
+		lines.push(
+			`  [${t.status === "completed" ? "x" : " "}] #${t.id} (${t.phase}) ${t.description}`,
+		);
+	}
+	lines.push("");
+
+	lines.push(`## Heartbeat`);
+	if (r.heartbeat) {
+		lines.push(
+			`  Last: ${r.heartbeat.status} @ ${new Date(r.heartbeat.at).toISOString()}`,
+		);
+		lines.push(
+			`  Interval: ${r.heartbeat.intervalMs}ms — ${r.heartbeat.stalled ? "STALLED" : "within budget"}`,
+		);
+	} else {
+		lines.push(`  No pulse recorded yet`);
+	}
+	lines.push("");
+
+	lines.push(`## Recommendations`);
+	for (const rec of r.recommendations) lines.push(`  - ${rec}`);
+
+	return lines.join("\n");
 }
