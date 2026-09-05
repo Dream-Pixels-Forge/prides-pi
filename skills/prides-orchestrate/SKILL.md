@@ -50,6 +50,7 @@ Determine what the user wants to do:
 | Check health              | `prides-heartbeat`                   | Record pulse, detect stalls             |
 | Check goal alignment      | `prides_goal_check`                  | Drift detection against original goal   |
 | Verify completion         | `prides_goal_verify`                 | Confirm success criteria before finish  |
+| Pre-action safety check   | `prides-guard`                       | Screen a planned write/commit/phase action against PRIDES policy |
 | Unknown / complex         | Continue here                        | Classify further                        |
 
 ### Step 3 — Delegate to Specialist

@@ -257,6 +257,7 @@ resources:
 | `prides-deploy` | "deploy", "release", "ship" | Deploy phase gates and pre-flight checks |
 | `prides-secure` | "audit", "security", "harden" | Secure-phase audit + emergency stop |
 | `prides-heartbeat` | "heartbeat", "status check" | Record health pulse and intent |
+| `prides-guard` | "is this safe", "will PRIDES block this", "before I write/commit" | Pre-action guardrail screen — verdict allow/warn/block against current PRIDES state |
 | `prides-orchestrate` | "PRIDES", "next phase", "what now" | Classify the task and route to the right specialist skill (review/deploy/secure/heartbeat/gate-loop) |
 | `prides-cybersec` | "vulnerability", "CVE", "prompt injection", "supply chain", "PQC", "incident", "breach", "zero trust", "LLM security", "AI attack" | **Full 2026+ cybersecurity skill** — threat taxonomy, scanner config, remediation playbooks, incident response, post-quantum readiness |
 

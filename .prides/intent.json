@@ -1,8 +1,8 @@
 {
-  "name": "pi-prides",
-  "purpose": "PRIDES (Prototype, Review, Implement, Deploy, Extend, Secure) governance extension for the pi coding agent — quality-gated, health-monitored SDLC with tools, guards, heartbeat, and emergency stop.",
-  "stack": "TypeScript, pi-coding-agent, TypeBox, Biome, Vitest",
-  "repository": "https://github.com/Dream-Pixels-Forge/pi-prides",
-  "createdAt": "2026-08-06T12:41:39.505Z",
+  "name": "pi-prides v2.0 hands-and-eyes",
+  "purpose": "Transform pi-prides from a passive governance layer into an active driver: animated widget, rich status (issues/PRs/phases), strict drift prevention, goal-enforced planning, full pipeline-orchestrator integration, autonomous pipeline driving capabilities.",
+  "stack": "TypeScript, vitest, biome, pi-coding-agent ExtensionAPI",
+  "repository": "github.com/Dream-Pixels-Forge/pi-prides",
+  "createdAt": "2026-09-05T13:35:07.027Z",
   "methodology": "PRIDES"
 }

@@ -43,6 +43,11 @@ import {
 } from "./phases.js";
 import { type ScaffoldFile, scaffoldPlan } from "./scaffold.js";
 import { createInitialState, recordEvent } from "./state.js";
+import {
+	buildStatus,
+	type IssueCounts,
+	type StatusSnapshot,
+} from "./status.js";
 import type {
 	Artifact,
 	BranchType,
@@ -104,6 +109,19 @@ export class PRIDESEngine {
 
 	serialize(): PRIDESState {
 		return this.state;
+	}
+
+	/** Build a full status snapshot (drives `prides_status` tool + widget). */
+	getStatus(
+		counts: IssueCounts = {
+			issuesOpened: 0,
+			issuesClosed: 0,
+			prsOpened: 0,
+			prsClosed: 0,
+			prsMerged: 0,
+		},
+	): StatusSnapshot {
+		return buildStatus(this.state, this.defs, counts, this.deps.now);
 	}
 
 	private commit(

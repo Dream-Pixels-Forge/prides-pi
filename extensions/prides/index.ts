@@ -27,11 +27,12 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { PRIDESEngine } from "./engine.js";
 import { DEFAULT_GATES } from "./gates.js";
-import { driftSeverity, lastGoalCheck, shouldRunDriftCheck } from "./goal.js";
-import { assessStaleness, isStalled, stalledReason } from "./heartbeat.js";
+import { driftSeverity, shouldRunDriftCheck } from "./goal.js";
+import { assessStaleness, stalledReason } from "./heartbeat.js";
 import { canAdvance, isCritical, PHASE_CONFIG, PHASE_ORDER } from "./phases.js";
 import { shQuote } from "./shell.js";
 import { createInitialState } from "./state.js";
+import type { IssueCounts } from "./status.js";
 import type {
 	BranchType,
 	CommandResult,
@@ -189,6 +190,47 @@ async function loadDefs(cwd: string): Promise<GateDef[]> {
 	return DEFAULT_GATES;
 }
 
+/** Read GitHub-style counts from `.prides/counts.json` (created by
+ *  `prides_counts_update`). Falls back to zeros when missing or malformed. */
+export async function loadCounts(cwd: string): Promise<IssueCounts> {
+	const empty: IssueCounts = {
+		issuesOpened: 0,
+		issuesClosed: 0,
+		prsOpened: 0,
+		prsClosed: 0,
+		prsMerged: 0,
+	};
+	try {
+		const raw = await readFile(resolve(cwd, ".prides/counts.json"), "utf8");
+		const parsed = JSON.parse(raw) as Partial<IssueCounts>;
+		return {
+			issuesOpened: num(parsed.issuesOpened),
+			issuesClosed: num(parsed.issuesClosed),
+			prsOpened: num(parsed.prsOpened),
+			prsClosed: num(parsed.prsClosed),
+			prsMerged: num(parsed.prsMerged),
+		};
+	} catch {
+		return empty;
+	}
+}
+function num(v: unknown): number {
+	return typeof v === "number" && Number.isFinite(v) ? Math.max(0, v) : 0;
+}
+function clampN(v: unknown): number {
+	return typeof v === "number" && Number.isFinite(v)
+		? Math.max(0, Math.floor(v))
+		: 0;
+}
+
+let cachedCounts: IssueCounts = {
+	issuesOpened: 0,
+	issuesClosed: 0,
+	prsOpened: 0,
+	prsClosed: 0,
+	prsMerged: 0,
+};
+
 export function loadState(ctx: ExtensionContext): PRIDESState {
 	let data: PRIDESState | undefined;
 	// getBranch() is ordered oldest -> newest, so the LAST match is the newest
@@ -205,6 +247,7 @@ export function loadState(ctx: ExtensionContext): PRIDESState {
 
 async function initEngine(ctx: ExtensionContext): Promise<void> {
 	currentDefs = await loadDefs(ctx.cwd);
+	cachedCounts = await loadCounts(ctx.cwd);
 	engine = new PRIDESEngine(loadState(ctx), {
 		runner,
 		globber,
@@ -236,30 +279,9 @@ function persist(): void {
 
 function updateWidget(ctx: ExtensionContext): void {
 	if (!engine || !ctx.hasUI) return;
-	const s = engine.state;
-	const open = s.tasks.filter((t) => t.status !== "completed").length;
-	const pass = Object.values(s.gates).filter((g) => g.status === "pass").length;
-	const total = Object.keys(s.gates).length;
-	const warnings = s.warnings.filter((w) => !w.resolvedAt);
-	const warnCount = warnings.filter((w) => w.severity === "warn").length;
-	const errCount = warnings.filter((w) => w.severity === "error").length;
-
-	const lines = [
-		`PRIDES ${s.phase} · ${PHASE_CONFIG[s.phase].name}${s.emergencyStop ? "  ⛔ STOP" : ""}`,
-		`tasks: ${open} open · gates: ${pass}/${total} pass`,
-		s.heartbeat
-			? `hb: ${isStalled(s, now) ? "STALLED" : s.heartbeat.status}`
-			: "hb: —",
-	];
-
-	if (errCount > 0 || warnCount > 0) {
-		const parts: string[] = [];
-		if (errCount > 0) parts.push(`${errCount} error(s)`);
-		if (warnCount > 0) parts.push(`${warnCount} warning(s)`);
-		lines.push(`⚠ ${parts.join(" · ")} — commit/push blocked`);
-	}
-
-	ctx.ui.setWidget("prides", lines);
+	// Live status snapshot drives both the widget AND any tool that surfaces it.
+	const status = engine.getStatus(cachedCounts);
+	ctx.ui.setWidget("prides", status.widgetLines);
 }
 
 /** Serialize engine mutations and persist after each operation. */
@@ -484,57 +506,127 @@ export default function (pi: ExtensionAPI) {
 		name: "prides_status",
 		label: "PRIDES Status",
 		description:
-			"Show current PRIDES phase, heartbeat, gate results, open tasks, and emergency-stop state.",
+			"Show current PRIDES phase (with sequence position), gate counts, task counts, heartbeat, drift score, warnings, GitHub-style issue/PR counts, and emergency-stop state.",
 		promptSnippet: "Show current PRIDES phase, gates, heartbeat, and tasks",
 		promptGuidelines: [
 			"Use prides_status to report the current SDLC phase and gate health before proposing phase changes.",
+			"Pass format='json' to get the structured status snapshot for programmatic use.",
 		],
-		parameters: Type.Object({}),
-		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+		parameters: Type.Object({
+			format: Type.Optional(
+				StringEnum(["text", "json"] as const, {
+					description:
+						"Output format. 'text' (default) returns human-readable lines; 'json' returns the structured StatusSnapshot (phase/gates/tasks/heartbeat/drift/warnings/counts).",
+				}),
+			),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const format = (params as { format?: "text" | "json" }).format ?? "text";
 			return runOp(ctx, (e) => {
-				const s = e.state;
-				const cfg = PHASE_CONFIG[s.phase];
-				const lines: string[] = [
-					`PRIDES phase: ${s.phase} (${cfg.name}) [${cfg.criticality}]`,
-					`Emergency stop: ${s.emergencyStop ? "ACTIVE" : "off"}`,
-					`Tasks: ${s.tasks.filter((t) => t.status !== "completed").length} open / ${s.tasks.length} total`,
-					`Heartbeat: ${s.heartbeat ? `${s.heartbeat.status}${isStalled(s, now) ? " (STALLED)" : ""}` : "none"}`,
-					`Gates: ${Object.values(s.gates).filter((g) => g.status === "pass").length}/${Object.keys(s.gates).length} passing`,
-				];
-				if (s.goal) {
-					const last = lastGoalCheck(s);
-					lines.push(
-						`Goal: ${s.goal.objective}${last ? ` — last check: aligned=${last.aligned} score=${last.driftScore}` : " — not yet checked"}`,
-					);
+				const status = e.getStatus(cachedCounts);
+				if (format === "json") {
+					return {
+						content: [{ type: "text", text: JSON.stringify(status, null, 2) }],
+						details: { status, state: e.state },
+					};
 				}
-				const text = lines.join("\n");
-				return { content: [{ type: "text", text }], details: { state: s } };
+				const lines = [...status.widgetLines];
+				if (status.phase === "S") {
+					lines.push("");
+					lines.push("Final phase reached.");
+				}
+				return {
+					content: [{ type: "text", text: lines.join("\n") }],
+					details: { status, state: e.state },
+				};
 			});
 		},
 		renderCall() {
 			return new Text("prides_status", 0, 0);
 		},
 		renderResult(result, _options, theme) {
-			const s = (result.details as { state?: PRIDESState } | undefined)?.state;
-			if (!s) {
+			const status = (
+				result.details as
+					| { status?: ReturnType<PRIDESEngine["getStatus"]> }
+					| undefined
+			)?.status;
+			if (!status) {
 				return new Text(
 					result.content[0]?.type === "text" ? result.content[0].text : "",
 					0,
 					0,
 				);
 			}
-			const cfg = PHASE_CONFIG[s.phase];
 			let t =
-				theme.fg("accent", `PRIDES ${s.phase}`) +
-				theme.fg("muted", ` · ${cfg.name}`);
-			if (s.emergencyStop) t += theme.fg("error", "  ⛔ STOP");
+				theme.fg("accent", `PRIDES ${status.phase}`) +
+				theme.fg("muted", ` · ${status.phaseName}`) +
+				theme.fg("dim", `  (${status.phaseProgress})`);
+			if (status.emergencyStop) t += theme.fg("error", "  ⛔ STOP");
 			t +=
+				"\n" +
+				theme.fg("dim", status.progressBar) +
 				"\n" +
 				theme.fg(
 					"dim",
-					`tasks ${s.tasks.filter((x) => x.status !== "completed").length} open · gates ${Object.values(s.gates).filter((g) => g.status === "pass").length}/${Object.keys(s.gates).length} pass`,
+					`tasks ${status.tasksOpen}/${status.tasksTotal} · gates ${status.gatesPass}/${status.gatesTotal} pass` +
+						(status.gatesFail ? ` (${status.gatesFail} fail)` : "") +
+						` · hb: ${status.heartbeatStatus ?? "—"}`,
 				);
+			if (status.driftSeverity !== "ok") {
+				t +=
+					"\n" +
+					theme.fg(
+						status.driftSeverity === "stop" ? "error" : "warning",
+						`⚠ drift ${status.driftScore?.toFixed(2)} (${status.driftSeverity})`,
+					);
+			}
 			return new Text(t, 0, 0);
+		},
+	});
+
+	pi.registerTool({
+		name: "prides_counts_update",
+		label: "PRIDES Counts Update",
+		description:
+			"Update the local GitHub-style counts (issues opened/closed, PRs opened/closed/merged) stored in `.prides/counts.json`. Use after fetching live counts from the gh CLI or after a manual reconciliation.",
+		promptSnippet: "Update PRIDES local GitHub-style counts",
+		promptGuidelines: [
+			"Use prides_counts_update after running `gh issue list --state all --json number` etc., to keep the widget accurate.",
+		],
+		parameters: Type.Object({
+			issuesOpened: Type.Optional(Type.Number()),
+			issuesClosed: Type.Optional(Type.Number()),
+			prsOpened: Type.Optional(Type.Number()),
+			prsClosed: Type.Optional(Type.Number()),
+			prsMerged: Type.Optional(Type.Number()),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			return runOp(ctx, async (e) => {
+				const p = params as Partial<IssueCounts>;
+				const next: IssueCounts = {
+					issuesOpened: clampN(p.issuesOpened ?? cachedCounts.issuesOpened),
+					issuesClosed: clampN(p.issuesClosed ?? cachedCounts.issuesClosed),
+					prsOpened: clampN(p.prsOpened ?? cachedCounts.prsOpened),
+					prsClosed: clampN(p.prsClosed ?? cachedCounts.prsClosed),
+					prsMerged: clampN(p.prsMerged ?? cachedCounts.prsMerged),
+				};
+				await writeFile(
+					resolve(ctx.cwd, ".prides/counts.json"),
+					JSON.stringify(next, null, 2),
+					"utf8",
+				);
+				cachedCounts = next;
+				const status = e.getStatus(cachedCounts);
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Counts updated — issues ${next.issuesOpened - next.issuesClosed} open · PRs ${next.prsOpened - next.prsClosed} open`,
+						},
+					],
+					details: { counts: next, status },
+				};
+			});
 		},
 	});
 
