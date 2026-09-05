@@ -87,10 +87,13 @@ become available as slash commands.
 | `prides_emergency_resume` | Clear the emergency stop |
 | `prides_artifact` | Log a phase artifact to the audit trail |
 | `prides_scaffold` | Generate `.prides/`, `intent.json`, `dev_notes/` |
-| `prides_report` | Full session report + recommendations |
-| `prides_task_add` | Track a task in the current phase |
+| `prides_report` | Full session report + recommendations (pass `format: "json"` for a structured telemetry snapshot) |
+| `prides_task_add` | Track a task in the current phase (triggers goal drift check if a goal is set) |
 | `prides_task_done` | Mark a task complete by id |
 | `prides_task_list` | List all tracked tasks |
+| `prides_goal_set` | Define the project goal + success criteria for drift tracking |
+| `prides_goal_check` | Run a goal drift check now (throttled; auto-fires on task-add & heartbeat) |
+| `prides_goal_verify` | Verify all success criteria before advancing past Implement or into Secure |
 | `prides_git_status` | Show Git branch taxonomy, workflow step, PR status |
 | `prides_git_branch` | Create/track branch (`feature/*`, `hotfix/*`, `bug/*`, `release/*`, `chore/*`) |
 | `prides_git_rebase` | Record/execute branch rebase onto target base branch (`main`) |
@@ -159,8 +162,42 @@ become available as slash commands.
 ## Customizing gates
 
 `prides_scaffold` writes `.prides/gates.config.json`. Add a `"gates"` array of
-`GateDef` objects (`{ name, phase, type: "command"|"artifact"|"manual", command?, artifactGlob? }`)
-to override the built-in `DEFAULT_GATES` for your project.
+`GateDef` objects to override the built-in `DEFAULT_GATES` for your project.
+Supported `type` values:
+
+| Type | Required fields | Behavior |
+|------|----------------|----------|
+| `command` | `command` | Runs a shell command; exit code 0 = pass |
+| `artifact` | `artifactGlob` | Passes if the glob matches any files |
+| `manual` | — | Requires human sign-off via `prides_gate <name> approve=true` |
+| `eval` | `prompt` | LLM-as-judge; configured via the `PRIDES_EVAL_CMD` env var (see [Eval gates](#eval-gates-llm-as-judge)) |
+
+Example:
+
+```json
+{
+  "gates": [
+    { "name": "spec-adherence", "phase": "I", "type": "eval",
+      "prompt": "Does every exported function have a JSDoc block describing its purpose?" }
+  ]
+}
+```
+
+## Eval gates (LLM-as-judge)
+
+`eval` gates delegate the pass/fail decision to an LLM. Configure the judge by
+setting the `PRIDES_EVAL_CMD` env var to a shell command that receives the
+rubric prompt as a single quoted argument and exits `0` (pass) / `1` (fail) /
+`2` (warn). The judge is untrusted input — the rubric comes from your repo's
+`gates.config.json` and is shell-quoted via POSIX single-quotes before exec.
+
+Example wrapper (Python):
+
+```bash
+export PRIDES_EVAL_CMD='python -m my_project.prides_judge'
+```
+
+When `PRIDES_EVAL_CMD` is unset, `eval` gates degrade to `warn` (non-blocking).
 
 ## Development (TDD — Non-Negotiable)
 
@@ -177,17 +214,38 @@ npm run check     # typecheck + lint + test (runs on prepublish)
 Tests inject a mock clock, command runner, and globber so no shell or
 filesystem is touched.
 
+## Goal loop & drift detection (v1.7.0+)
+
+PRIDES treats `intent` (set once at scaffold) as **the spec the agent must
+prove it satisfied**. After scaffolding, call `prides_goal_set` with a
+one-sentence objective plus checkable success criteria — PRIDES will then:
+
+- **Drift-check on scope decisions**: each `prides_task_add` piggybacks a
+  judge call to confirm the new task still aligns with the original goal
+  (throttled to once per 5 min, so cost is bounded regardless of task churn).
+- **Drift-check on heartbeat**: `prides_heartbeat` does the same piggyback,
+  so a long stretch of silent work still gets checked.
+- **Auto-warn / auto-stop**: a drift score ≥ 0.5 emits a warning; ≥ 0.85
+  triggers the same `emergency_stop` path used for critical gate failures.
+- **Verify before critical advances**: `canAdvance()` blocks `I → D` and
+  `→ S` until a recent `prides_goal_verify` call reports `aligned: true`.
+
+Drift is a semantic event, not a time-based one, so the trigger is *task
+addition* (when scope decisions happen), with heartbeat as a throttled
+fallback. See `dev_notes/goal-loop-implementation-plan.md` for the full
+design rationale.
+
 ## Bundled methodology content
 
-The repository also ships the PRIDES agent persona and prompt library used to
-drive the methodology (these are reference content, contributed to pi as
-resources):
+The repository ships pi-native prompt and skill content as discoverable
+resources:
 
-- `reference/claude-code/` — the intended PRIDES Claude Code coordinator + phase subagents
-  (Prototype/Review/Implement/Deploy/Extend/Secure). **Reference only** — pi has no agent
-  API, so these are not executed by the extension; the pi-native workflow is the `prides_*`
-  tools, the `/prides` command, and the bundled PRIDES skills.
 - `prompts/` — workflow prompts (`/init`, `/review`, `/start-sprint`, …)
+- `reference/claude-code/` — historical Claude Code coordinator +
+  phase-subagent drafts. **Reference only**; pi has no agent API, so these
+  are not executed by the extension. They are kept in `reference/` (not
+  `agents/`) so they don't ship as if pi executed them — see ADR
+  `dev_notes/decisions/0001-delete-orphan-agents.md`.
 - `skills/` — PRIDES-native pi skills:
 
 | Skill | Triggers On | Purpose |
@@ -199,6 +257,7 @@ resources):
 | `prides-deploy` | "deploy", "release", "ship" | Deploy phase gates and pre-flight checks |
 | `prides-secure` | "audit", "security", "harden" | Secure-phase audit + emergency stop |
 | `prides-heartbeat` | "heartbeat", "status check" | Record health pulse and intent |
+| `prides-orchestrate` | "PRIDES", "next phase", "what now" | Classify the task and route to the right specialist skill (review/deploy/secure/heartbeat/gate-loop) |
 | `prides-cybersec` | "vulnerability", "CVE", "prompt injection", "supply chain", "PQC", "incident", "breach", "zero trust", "LLM security", "AI attack" | **Full 2026+ cybersecurity skill** — threat taxonomy, scanner config, remediation playbooks, incident response, post-quantum readiness |
 
 ### `prides-cybersec` Skill Structure

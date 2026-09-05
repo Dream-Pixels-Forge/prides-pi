@@ -976,10 +976,31 @@ export default function (pi: ExtensionAPI) {
 		promptSnippet: "Generate a PRIDES session report",
 		promptGuidelines: [
 			"Use prides_report to summarize session health and next recommended actions.",
+			"Pass format='json' to get a structured snapshot for telemetry or external tooling.",
 		],
-		parameters: Type.Object({}),
-		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+		parameters: Type.Object({
+			format: Type.Optional(
+				StringEnum(["text", "json"] as const, {
+					description:
+						"Output format. 'text' (default) returns the human-readable markdown report; 'json' returns a structured snapshot suitable for telemetry.",
+				}),
+			),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const format = (params as { format?: "text" | "json" }).format ?? "text";
 			return runOp(ctx, (e) => {
+				if (format === "json") {
+					const snapshot = e.report("json");
+					return {
+						content: [
+							{
+								type: "text",
+								text: JSON.stringify(snapshot, null, 2),
+							},
+						],
+						details: { snapshot, state: e.state },
+					};
+				}
 				const text = e.report();
 				return {
 					content: [{ type: "text", text }],
