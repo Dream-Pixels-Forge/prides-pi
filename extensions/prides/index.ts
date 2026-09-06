@@ -47,6 +47,7 @@ import type {
 	PRIDESState,
 	ProjectIntent,
 } from "./types.js";
+import { buildWidget } from "./widget.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -282,9 +283,13 @@ function persist(): void {
 
 function updateWidget(ctx: ExtensionContext): void {
 	if (!engine || !ctx.hasUI) return;
-	// Live status snapshot drives both the widget AND any tool that surfaces it.
-	const status = engine.getStatus(cachedCounts);
-	ctx.ui.setWidget("prides", status.widgetLines);
+	// Frame-based animated widget driven by the live StatusSnapshot.
+	const factory = buildWidget(
+		() => engine!.state,
+		() => cachedCounts,
+		() => currentDefs,
+	);
+	ctx.ui.setWidget("prides", factory);
 }
 
 /** Serialize engine mutations and persist after each operation. */
