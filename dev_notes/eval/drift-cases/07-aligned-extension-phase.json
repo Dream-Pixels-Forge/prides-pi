@@ -1,0 +1,20 @@
+{
+  "id": "07-aligned-extension-phase",
+  "description": "Extend phase adding helper utilities that support the existing success criteria without violating constraints.",
+  "label": "aligned",
+  "notes": "Phase E (Extend) work adding internal helper utilities. No nonGoals or constraints violated. Tasks reference the original goal's domain (JWT, auth).",
+  "goal": {
+    "objective": "Ship JWT-based authentication for the API",
+    "successCriteria": [
+      "POST /login returns 200 with valid credentials and a JWT",
+      "POST /login returns 401 with invalid credentials"
+    ],
+    "nonGoals": ["OAuth provider integration"],
+    "constraints": ["no new runtime dependencies"]
+  },
+  "activity": [
+    { "kind": "task_add", "phase": "E", "message": "Task #25: Extract JWT expiry check into a reusable helper" },
+    { "kind": "task_add", "phase": "E", "message": "Task #26: Add unit tests for the new helper" },
+    { "kind": "gate", "phase": "E", "message": "test-unit → pass" }
+  ]
+}

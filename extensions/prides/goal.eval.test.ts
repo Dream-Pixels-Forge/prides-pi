@@ -90,6 +90,54 @@ function stubJudge(goal: GoalSpec, activity: string): "aligned" | "drifted" {
 			}
 		}
 	}
+	// 3. Topic-shift: extract distinctive keywords from BOTH the objective and
+	// success criteria. If the activity touches the goal's domain at all (any
+	// distinctive keyword match), it's not a topic shift. Drift is only when
+	// the activity references neither the goal nor its criteria.
+	const stopWords = new Set([
+		"with",
+		"from",
+		"that",
+		"this",
+		"return",
+		"returns",
+		"valid",
+		"invalid",
+		"other",
+		"missing",
+		"endpoint",
+		"endpoints",
+		"credentials",
+	]);
+	// Domain-aware short tokens that carry meaning even when < 5 chars
+	// (e.g. "JWT", "API", "URL"). The judge looks for these as substrings.
+	const shortTokens = new Set([
+		"jwt",
+		"api",
+		"url",
+		"uri",
+		"sql",
+		"css",
+		"sdk",
+	]);
+	const domainKeywords = new Set<string>();
+	const collect = (s: string) => {
+		for (const word of s.split(/\s+/)) {
+			const cleaned = word.replace(/[^a-z0-9]/gi, "").toLowerCase();
+			if (cleaned.length >= 5 && !stopWords.has(cleaned))
+				domainKeywords.add(cleaned);
+			else if (cleaned.length >= 3 && shortTokens.has(cleaned))
+				domainKeywords.add(cleaned);
+		}
+	};
+	collect(goal.objective);
+	for (const c of goal.successCriteria) collect(c);
+	if (domainKeywords.size > 0) {
+		const matchCount = [...domainKeywords].filter((kw) =>
+			lcActivity.includes(kw),
+		).length;
+		if (matchCount === 0) return "drifted";
+	}
 	return "aligned";
 }
 
