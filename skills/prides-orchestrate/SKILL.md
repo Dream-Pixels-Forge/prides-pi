@@ -23,16 +23,25 @@ Central orchestrator that classifies tasks and delegates to specialist skills.
 - User says "build X", "fix Y", "deploy", "review this", "audit", "brainstorm about"
 - Switching between PRIDES phases
 - Multi-step workflows that span multiple phases
+- Whenever you are unsure which PRIDES skill to load next
 
 ## Instructions
 
-### Step 1 — Assess Current State
+### Step 1 — Assess Current State + Handoff
 
 ```json
-prides_status
+prides_orchestrate_handoff
 ```
 
-Read the current phase, gate status, heartbeat, and any emergency stop.
+This single tool call returns:
+- the **primary skill** (deterministic, based on current phase + gate + drift state)
+- a **rationale** for why
+- **cross-references** to agentic-workflow skills (always includes
+  `pipeline-orchestrator`, `dpf-agentic-engineer`, `test-driven-development`,
+  `subagent-driven-development`, `loopy-agent`)
+- a **recommended next action** (the `prides_*` tool to call next)
+
+Then call `prides_status` for the raw numbers (phase index, drift score, gate counts, etc.).
 
 ### Step 2 — Classify the Task
 
@@ -50,8 +59,26 @@ Determine what the user wants to do:
 | Check health              | `prides-heartbeat`                   | Record pulse, detect stalls             |
 | Check goal alignment      | `prides_goal_check`                  | Drift detection against original goal   |
 | Verify completion         | `prides_goal_verify`                 | Confirm success criteria before finish  |
+| Generate implementation plan | `prides_plan`                     | Writes `dev_notes/PLAN_AUTO.md` from goal + state |
 | Pre-action safety check   | `prides-guard`                       | Screen a planned write/commit/phase action against PRIDES policy |
+| Acknowledge drift warning | `prides_drift_ack`                   | Record an explicit acceptance of a drift score |
+| Update GitHub-style counts | `prides_counts_update`              | Update `.prides/counts.json` from gh CLI |
 | Unknown / complex         | Continue here                        | Classify further                        |
+
+### Agentic-Workflow Cross-References (always loaded alongside this skill)
+
+When delegating implementation work, also load these ecosystem skills:
+
+- **`pipeline-orchestrator`** — central coordinator; routes multi-skill workflows
+- **`dpf-agentic-engineer`** — production-grade agent architecture
+- **`test-driven-development`** — RED → GREEN → REFACTOR discipline
+- **`subagent-driven-development`** — branch-per-task + PR + Verdity + CI
+- **`loopy-agent`** — middleware, plugins, state, streaming, eval gates
+- **`dpf-debugger-engineer`** — systematic 4-phase debugging
+- **`prides-guard`** — pre-action safety screen
+- **`pipeline-scorer`** — score skill execution post-phase
+
+This is the same integration pattern Anthropic's orchestrator-workers workflow describes.
 
 ### Step 3 — Delegate to Specialist
 

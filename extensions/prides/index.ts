@@ -25,9 +25,11 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { nextAction, renderActionLine } from "./drive.js";
 import { PRIDESEngine } from "./engine.js";
 import { DEFAULT_GATES } from "./gates.js";
 import { driftSeverity, shouldRunDriftCheck } from "./goal.js";
+import { buildHandoff, renderHandoffMarkdown } from "./handoff.js";
 import { assessStaleness, stalledReason } from "./heartbeat.js";
 import { canAdvance, isCritical, PHASE_CONFIG, PHASE_ORDER } from "./phases.js";
 import { generatePlan, renderPlanMarkdown } from "./plan.js";
@@ -647,6 +649,7 @@ export default function (pi: ExtensionAPI) {
 				const plan = generatePlan(e.state, currentDefs);
 				const md = renderPlanMarkdown(plan, e.state);
 				await writeFile(resolve(ctx.cwd, "dev_notes/PLAN_AUTO.md"), md, "utf8");
+				e.state = { ...e.state, planGeneratedAt: now() };
 				return {
 					content: [
 						{
@@ -655,6 +658,73 @@ export default function (pi: ExtensionAPI) {
 						},
 					],
 					details: { plan, markdown: md },
+				};
+			});
+		},
+	});
+
+	pi.registerTool({
+		name: "prides_orchestrate_handoff",
+		label: "PRIDES Orchestrate Handoff",
+		description:
+			"Return a deterministic skill-routing map for the current PRIDES state: primary skill, rationale, cross-references to agentic-workflow skills, and recommended next prides_* action. Use when the agent is unsure which skill to load next.",
+		promptSnippet: "Get a skill-routing handoff for the current state",
+		promptGuidelines: [
+			"Call prides_orchestrate_handoff before loading a specialist skill to confirm the right one.",
+			"Cross-references always include pipeline-orchestrator, dpf-agentic-engineer, test-driven-development, subagent-driven-development, and loopy-agent.",
+		],
+		parameters: Type.Object({
+			format: Type.Optional(
+				StringEnum(["text", "json"] as const, {
+					description:
+						"Output format. 'text' (default) returns markdown; 'json' returns the structured Handoff object.",
+				}),
+			),
+		}),
+		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+			const format = (params as { format?: "text" | "json" }).format ?? "text";
+			return runOp(ctx, (e) => {
+				const h = buildHandoff(e.state);
+				if (format === "json") {
+					return {
+						content: [{ type: "text", text: JSON.stringify(h, null, 2) }],
+						details: { handoff: h, state: e.state },
+					};
+				}
+				const md = renderHandoffMarkdown(h);
+				return {
+					content: [{ type: "text", text: md }],
+					details: { handoff: h, state: e.state },
+				};
+			});
+		},
+	});
+
+	pi.registerTool({
+		name: "prides_drive",
+		label: "PRIDES Drive (Autonomous Next-Step)",
+		description:
+			"Recommend the next prides_* tool to call given the current state. Pure decision function — returns an action recommendation but does NOT execute it (the agent must call the recommended tool itself for explicit user opt-in).",
+		promptSnippet:
+			"Get the next recommended action for the current PRIDES state",
+		promptGuidelines: [
+			"Call prides_drive whenever the agent is unsure what to do next.",
+			"Read the action.reasoning, then call action.tool with action.params.",
+			"Never auto-execute — the user must always have explicit opt-in for tool calls that mutate state or run commands.",
+		],
+		parameters: Type.Object({}),
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			return runOp(ctx, (e) => {
+				const action = nextAction(e.state, currentDefs, now);
+				const line = renderActionLine(action);
+				return {
+					content: [
+						{
+							type: "text",
+							text: `${line}\n\n(kind=${action.kind}${action.urgent ? " · URGENT" : ""}${action.params ? ` · params=${JSON.stringify(action.params)}` : ""})`,
+						},
+					],
+					details: { action, state: e.state },
 				};
 			});
 		},

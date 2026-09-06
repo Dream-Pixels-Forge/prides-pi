@@ -94,6 +94,11 @@ become available as slash commands.
 | `prides_goal_set` | Define the project goal + success criteria for drift tracking |
 | `prides_goal_check` | Run a goal drift check now (throttled; auto-fires on task-add & heartbeat) |
 | `prides_goal_verify` | Verify all success criteria before advancing past Implement or into Secure |
+| `prides_drift_ack` | Acknowledge a goal-drift warning so phase advance is permitted again |
+| `prides_plan` | Generate a goal-enforced implementation plan and write `dev_notes/PLAN_AUTO.md` |
+| `prides_counts_update` | Update `.prides/counts.json` (GitHub-style issue/PR counts from gh CLI) |
+| `prides_orchestrate_handoff` | Return a deterministic skill-routing map for the current state |
+| `prides_drive` | Recommend the next prides_* tool to call (does NOT auto-execute) |
 | `prides_git_status` | Show Git branch taxonomy, workflow step, PR status |
 | `prides_git_branch` | Create/track branch (`feature/*`, `hotfix/*`, `bug/*`, `release/*`, `chore/*`) |
 | `prides_git_rebase` | Record/execute branch rebase onto target base branch (`main`) |

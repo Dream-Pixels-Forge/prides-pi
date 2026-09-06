@@ -202,6 +202,8 @@ export interface PRIDESState {
 	warnings: PRIDESWarning[];
 	/** Drift acknowledgment: when the agent last explicitly accepted a drift score. */
 	driftAck?: { at: number; score: number; warningId?: string };
+	/** When the goal-enforced plan was last written to dev_notes/PLAN_AUTO.md. */
+	planGeneratedAt?: number;
 }
 
 export interface CommandResult {
