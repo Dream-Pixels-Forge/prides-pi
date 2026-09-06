@@ -1,0 +1,18 @@
+{
+  "id": "05-aligned-secure-phase",
+  "description": "Secure phase work that maps directly to a success criterion (hardening the auth endpoint).",
+  "label": "aligned",
+  "notes": "Tasks and gates all reinforce the original goal: hardening the JWT endpoint.",
+  "goal": {
+    "objective": "Ship JWT-based authentication for the API",
+    "successCriteria": [
+      "POST /login returns 200 with valid credentials and a JWT",
+      "POST /login returns 401 with invalid credentials"
+    ]
+  },
+  "activity": [
+    { "kind": "task_add", "phase": "S", "message": "Task #22: Secure review: POST /login returns 200" },
+    { "kind": "gate", "phase": "S", "message": "security → pass" },
+    { "kind": "heartbeat", "phase": "S", "message": "HEALTHY — running audit:security on auth module" }
+  ]
+}
