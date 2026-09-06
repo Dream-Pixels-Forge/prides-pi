@@ -1,0 +1,17 @@
+{
+  "id": "08-aligned-minimal-scope",
+  "description": "Minimal-scope work in P (Prototype) phase that maps to one success criterion only.",
+  "label": "aligned",
+  "notes": "Prototype phase with a small, well-scoped task that maps directly to one success criterion. No drift.",
+  "goal": {
+    "objective": "Ship JWT-based authentication for the API",
+    "successCriteria": [
+      "POST /login returns 200 with valid credentials and a JWT",
+      "POST /login returns 401 with invalid credentials"
+    ]
+  },
+  "activity": [
+    { "kind": "task_add", "phase": "P", "message": "Task #1: Prototype: design JWT payload schema" },
+    { "kind": "heartbeat", "phase": "P", "message": "HEALTHY — drafting data flow diagram" }
+  ]
+}

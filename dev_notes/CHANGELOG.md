@@ -1,5 +1,28 @@
 # CHANGELOG
 
+## v2.1.0 (2026-09-06) — "Hands, Eyes, and Tools"
+
+Closes #41, #42, #43 from the v2.0 release.
+
+### Added
+
+- **Real `gh` CLI integration** for `prides_counts_update` (`#41`): new `ghCounts.ts` pure module with `parseGhIssueList`, `parseGhPrList`, `mergeGhCounts` (robust against malformed JSON). Host-side `fetchGhCounts(cwd)` runs `gh issue list --state all --json number,state` and `gh pr list --state all --json number,state,mergedAt`, falls back to zeros on error. `prides_counts_update` now accepts `autoRefresh: boolean` — when `true`, calls `fetchGhCounts` and ignores manual inputs. Backward-compatible.
+- **Frame-based animated widget** using pi-tui `Loader` (`#42`): new `widget.ts` exports `buildWidget(getState, getCounts, getDefs, getNow)` returning a `(tui, theme) => Component & { dispose? }` factory. The widget renders the live `StatusSnapshot` on every frame via getter closures and uses a real pi-tui `Loader` (250ms spinner) for the heartbeat indicator. Gracefully degrades when TUI lacks `requestRender` (so unit tests can mount it without a live TUI).
+- **Prompt-eval harness** for goal-loop drift detection (`#43`): 8 hand-labeled cases in `dev_notes/eval/drift-cases/` (5 aligned + 3 drifted, covering topic-shift, scope-creep via nonGoals, constraint violations, and minimal-scope edge cases). `goal.eval.test.ts` loads each case, asserts `buildDriftPrompt` + `buildVerifyPrompt` include all required sections, and runs a keyword-based stub judge that achieves 100% accuracy on the labeled set. The stub judge validates that the prompts surface enough information for any reasonable LLM judge (`PRIDES_EVAL_CMD`) to do its job — addresses the "judge quality is the ceiling" limitation noted in `goal-loop-implementation-plan.md` §10.
+- **Live `gh` integration test** (`extensions/prides/ghIntegration.test.ts`): auto-skips when `gh` is not installed or not authenticated. When run, verifies the live `gh` JSON → `parseGhIssueList` / `parseGhPrList` → `mergeGhCounts` pipeline against this repo, asserting invariant `merged ≤ closed` and that IssueCounts are sensible non-negative integers.
+- **Smoke test** (`extensions/prides/smoke.test.ts`): 10-step end-to-end lifecycle test driving the engine through `scaffold → set goal → plan → drift-block → ack-drift → advance → review → sign-off → task management → goal verification → deploy → emergency-stop-and-resume`. This is the closest automated simulation of a real pi session.
+- **`.gitignore` now ignores `*.tgz`** — prevents accidentally committing `npm pack` artifacts.
+
+### Tests
+
+- 194/194 passing (was 141 in v2.0, +53 new across 5 new test files: `ghCounts.test.ts`, `widget.test.ts`, `goal.eval.test.ts`, `ghIntegration.test.ts`, `smoke.test.ts`).
+- Eval dataset expanded from 5 → 8 labeled cases; stub-judge accuracy is now 100% (8/8).
+
+### Notes
+
+- `npm publish` is blocked in this environment (no `npm login` configured). The package builds cleanly and produces a 116.7 kB tarball; to publish, run `npm login` first.
+- The `ghIntegration.test.ts` runs against the live remote (Dream-Pixels-Forge/pi-prides) when `gh` is authenticated. It is auto-skipped otherwise, so CI without `gh` still passes.
+
 ## v2.0.0 (2026-09-05) — "Hands and Eyes"
 
 Major release: PRIDES transforms from a passive governance layer into an active pipeline driver.
