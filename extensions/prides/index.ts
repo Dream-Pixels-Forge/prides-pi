@@ -30,6 +30,7 @@ import { DEFAULT_GATES } from "./gates.js";
 import { driftSeverity, shouldRunDriftCheck } from "./goal.js";
 import { assessStaleness, stalledReason } from "./heartbeat.js";
 import { canAdvance, isCritical, PHASE_CONFIG, PHASE_ORDER } from "./phases.js";
+import { generatePlan, renderPlanMarkdown } from "./plan.js";
 import { shQuote } from "./shell.js";
 import { createInitialState } from "./state.js";
 import type { IssueCounts } from "./status.js";
@@ -625,6 +626,35 @@ export default function (pi: ExtensionAPI) {
 						},
 					],
 					details: { counts: next, status },
+				};
+			});
+		},
+	});
+
+	pi.registerTool({
+		name: "prides_plan",
+		label: "PRIDES Generate Plan",
+		description:
+			"Generate a goal-enforced implementation plan covering every PRIDES phase. Writes `dev_notes/PLAN_AUTO.md` and returns the rendered markdown. Re-call after any change to goal or task list.",
+		promptSnippet: "Generate a goal-enforced PRIDES plan",
+		promptGuidelines: [
+			"Use prides_plan immediately after setting the goal to materialize a phase-by-phase plan.",
+			"Re-run after goal or task-list changes to refresh the plan.",
+		],
+		parameters: Type.Object({}),
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			return runOp(ctx, async (e) => {
+				const plan = generatePlan(e.state, currentDefs);
+				const md = renderPlanMarkdown(plan, e.state);
+				await writeFile(resolve(ctx.cwd, "dev_notes/PLAN_AUTO.md"), md, "utf8");
+				return {
+					content: [
+						{
+							type: "text",
+							text: `Plan written to dev_notes/PLAN_AUTO.md (${plan.length} phases)`,
+						},
+					],
+					details: { plan, markdown: md },
 				};
 			});
 		},
